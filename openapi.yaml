@@ -1,0 +1,447 @@
+openapi: 3.0.0
+info:
+  title: GDELT DOC 2.0 API
+  description: |
+    The GDELT DOC 2.0 API provides full text search capabilities across global news content in 65 languages, 
+    including advanced image search powered by Google Cloud Vision API.
+    
+    The API searches a rolling window of the last 3 months of coverage and includes all images processed 
+    by the Visual Global Knowledge Graph (VGKG).
+
+    ## Query Operators
+    - domain: - Filter by news domain (e.g., domain:cnn.com)
+    - sourcelang: - Filter by source language (e.g., sourcelang:english)
+    - sourcecountry: - Filter by source country (e.g., sourcecountry:US)
+    - imagetag: - Filter by image tags (e.g., imagetag:protest)
+    - imageface: - Filter by number of faces (e.g., imageface:>2)
+    - tone: - Filter by article tone (e.g., tone:>0)
+    - near: - Geographic proximity search
+    
+    ## Rate Limits
+    - 250 queries per day per IP address
+    - Maximum 250 results per query
+    - Rolling 3-month search window
+  version: '2.0'
+  contact:
+    name: GDELT Project
+    url: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/
+    email: gdelt-api@gdeltproject.org
+  termsOfService: https://blog.gdeltproject.org/gdelt-api-terms-of-service/
+  license:
+    name: GDELT Terms of Service
+    url: https://blog.gdeltproject.org/gdelt-api-terms-of-service/
+
+servers:
+  - url: https://api.gdeltproject.org/api/v2/doc
+    description: GDELT DOC 2.0 API Production Server
+  - url: https://api-backup.gdeltproject.org/api/v2/doc
+    description: GDELT DOC 2.0 API Backup Server
+
+paths:
+  /doc:
+    get:
+      summary: Search GDELT news content and images
+      description: |
+        Searches across news content and images from the last 3 months with various output formats and filtering options.
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: |
+            Search query supporting keywords, phrases, and advanced operators:
+            - Use quotes for exact phrases: "donald trump"
+            - Use parentheses and OR for alternatives: (clinton OR sanders OR trump)
+            - Use minus to exclude: -sourcelang:spanish
+            - Boolean operators: AND, OR, NOT
+            - Wildcards: climate* matches climate, climates, climatic
+            - Field-specific searches:
+              * domain:cnn.com
+              * sourcelang:english
+              * sourcecountry:US
+              * imagetag:protest
+              * imageface:>2
+              * tone:>0
+              * near:"new york"~10
+          schema:
+            type: string
+            example: '"climate change" OR "global warming" sourcelang:english -domain:blogspot.com'
+            minLength: 3
+            maxLength: 1000
+            
+        - name: mode
+          in: query
+          description: |
+            Specifies the output format and visualization type:
+            - ArtList: Simple list of matching articles
+            - ArtGallery: Magazine-style visual layout
+            - TimelineVol: Coverage volume timeline
+            - ToneChart: Emotional histogram
+            - WordCloudImageTags: Image tag word cloud
+            - ImageCollage: Visual collage of images
+            - ImageGallery: Grid layout of images
+            - TimelineLang: Timeline by language
+            - TimelineSourceCountry: Timeline by source country
+          schema:
+            type: string
+            enum:
+              - artlist
+              - artgallery 
+              - timelinevol
+              - tonechart
+              - wordcloudimagetags
+              - imagecollage
+              - imagegallery
+              - timelinelang
+              - timelinesourcecountry
+            default: artlist
+            
+        - name: timespan
+          in: query
+          description: |
+            Narrow the search timespan:
+            - Minutes: 15min, 30min, 45min
+            - Hours: 1h, 2h, 3h, 6h, 12h, 24h
+            - Days: 1d, 2d, 3d, 7d, 14d
+            - Weeks: 1w, 2w, 3w
+            - Months: 1m, 2m, 3m
+            Note: Cannot exceed 3 months (rolling window)
+          schema:
+            type: string
+            example: '7d'
+            pattern: '^(\d+[mhdw]|3m)$'
+            
+        - name: format
+          in: query
+          description: |
+            Output format:
+            - HTML: Browser-based visualization (default)
+            - CSV: Comma-separated values with headers
+            - RSS: RSS 2.0 feed (ArticleList mode only)
+            - JSON: Structured JSON response
+            - JSONP: JSONP with callback parameter
+          schema:
+            type: string
+            enum:
+              - html
+              - csv
+              - rss
+              - json
+              - jsonp
+            default: html
+            
+        - name: maxrecords
+          in: query
+          description: Maximum number of results to return (up to 250)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 250
+            default: 75
+            
+        - name: callback
+          in: query
+          description: JSONP callback function name (only used when format=jsonp)
+          schema:
+            type: string
+            pattern: '^[a-zA-Z_$][0-9a-zA-Z_$]*$'
+            
+        - name: sort
+          in: query
+          description: |
+            Sort order for results:
+            - DateDesc: Most recent first (default)
+            - DateAsc: Oldest first
+            - ToneDesc: Most positive tone first
+            - ToneAsc: Most negative tone first
+          schema:
+            type: string
+            enum:
+              - DateDesc
+              - DateAsc
+              - ToneDesc
+              - ToneAsc
+            default: DateDesc
+
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [OK]
+                  totalResults:
+                    type: integer
+                    description: Total number of matching results
+                  timespan:
+                    type: string
+                    description: Actual timespan of results
+                  query:
+                    type: string
+                    description: Normalized query string
+                  articles:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Article'
+              example:
+                status: OK
+                totalResults: 150
+                timespan: 7d
+                query: '"climate change" sourcelang:english'
+                articles: [
+                  {
+                    "url": "https://example.com/article1",
+                    "title": "Climate Change Impact Study",
+                    "sourceCountry": "US",
+                    "sourceLang": "eng",
+                    "publishDate": "2024-03-20T15:30:00Z",
+                    "tone": 0.25
+                  }
+                ]
+            text/html:
+              schema:
+                type: string
+            text/csv:
+              schema:
+                type: string
+              example: |
+                URL,Title,SourceCountry,SourceLang,PublishDate,Tone
+                https://example.com/article1,Climate Change Impact Study,US,eng,2024-03-20T15:30:00Z,0.25
+            application/rss+xml:
+              schema:
+                type: string
+                
+        '400':
+          description: Bad request - invalid parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ERROR]
+                  error:
+                    type: string
+                    description: Error message
+                example:
+                  status: ERROR
+                  error: "Invalid query parameter: timespan must match pattern ^(\\d+[mhdw]|3m)$"
+                  
+        '429':
+          description: Too many requests - rate limit exceeded
+          headers:
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+              description: Requests allowed per day
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+              description: Remaining requests for today
+            X-RateLimit-Reset:
+              schema:
+                type: integer
+                format: unix-timestamp
+              description: Time when rate limit resets
+              
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ERROR]
+                  error:
+                    type: string
+                    description: Error message
+
+components:
+  schemas:
+    Article:
+      type: object
+      required:
+        - url
+        - title
+        - sourceCountry
+        - sourceLang
+        - publishDate
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Article URL
+        title:
+          type: string
+          description: Article title
+        sourceCountry:
+          type: string
+          description: ISO 3166-1 alpha-2 country code
+          pattern: '^[A-Z]{2}$'
+        sourceLang:
+          type: string
+          description: ISO 639-3 language code
+          pattern: '^[a-z]{3}$'
+        domain:
+          type: string
+          description: Source domain name
+        publishDate:
+          type: string
+          format: date-time
+          description: Publication date/time in ISO 8601 format
+        tone:
+          type: number
+          description: Article tone score (-100 to +100)
+          minimum: -100
+          maximum: 100
+        locations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Location'
+        themes:
+          type: array
+          items:
+            type: string
+          description: GDELT themes detected in article
+        persons:
+          type: array
+          items:
+            type: string
+          description: Named persons mentioned in article
+        organizations:
+          type: array
+          items:
+            type: string
+          description: Named organizations mentioned in article
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/Image'
+            
+    Image:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Image URL
+        tags:
+          type: array
+          items:
+            type: string
+          description: Visual tags from Google Cloud Vision API
+        webCount:
+          type: integer
+          minimum: 0
+          description: Number of times image found on web
+        faceTone:
+          type: number
+          minimum: -100
+          maximum: 100
+          description: Average facial emotion tone (-100 to +100)
+        numFaces:
+          type: integer
+          minimum: 0
+          description: Number of detected faces
+        landmarks:
+          type: array
+          items:
+            type: string
+          description: Detected landmarks in image
+        labels:
+          type: array
+          items:
+            type: string
+          description: General image labels
+        safeSearch:
+          type: object
+          description: Google Vision SafeSearch results
+          properties:
+            adult:
+              type: string
+              enum: [VERY_UNLIKELY, UNLIKELY, POSSIBLE, LIKELY, VERY_LIKELY]
+            violence:
+              type: string
+              enum: [VERY_UNLIKELY, UNLIKELY, POSSIBLE, LIKELY, VERY_LIKELY]
+            
+    Location:
+      type: object
+      required:
+        - lat
+        - lon
+        - name
+      properties:
+        lat:
+          type: number
+          format: float
+          minimum: -90
+          maximum: 90
+          description: Latitude
+        lon:
+          type: number
+          format: float
+          minimum: -180
+          maximum: 180
+          description: Longitude
+        name:
+          type: string
+          description: Location name
+        type:
+          type: string
+          enum: [CITY, COUNTRY, LANDMARK]
+          description: Location type
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Confidence score of location match
+
+  parameters:
+    CommonQueryParams:
+      - $ref: '#/components/parameters/query'
+      - $ref: '#/components/parameters/timespan'
+      - $ref: '#/components/parameters/format'
+      - $ref: '#/components/parameters/maxrecords'
+
+  responses:
+    Error400:
+      description: Bad request - invalid parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+            
+    Error429:
+      description: Too many requests
+      headers:
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+            format: unix-timestamp
+            
+    Error500:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  securitySchemes: {}
+
+tags:
+  - name: Search
+    description: News and image search endpoints
+  - name: Visualization
+    description: Data visualization endpoints
+
+externalDocs:
+  description: GDELT API Documentation
+  url: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/ 
