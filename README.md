@@ -1,100 +1,101 @@
-# Welcome to React Router!
+# GDELT News Explorer
 
-A modern, production-ready template for building full-stack React applications using React Router.
+A real-time news monitoring dashboard that helps you track global news coverage through customizable feeds. Built on the GDELT Project API, it provides instant access to news from over 65 languages with smart article grouping and deduplication.
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/remix-run/react-router-templates/tree/main/default)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-## Features
+## Key Features
 
-- 🚀 Server-side rendering
-- ⚡️ Hot Module Replacement (HMR)
-- 📦 Asset bundling and optimization
-- 🔄 Data loading and mutations
-- 🔒 TypeScript by default
-- 🎉 TailwindCSS for styling
-- 📖 [React Router docs](https://reactrouter.com/)
+- 📱 **Multi-Column Layout**: Horizontal scrolling feed interface inspired by TweetDeck
+- 🔍 **Smart Grouping**: Automatically groups similar articles to reduce noise
+- 🌍 **Global Coverage**: News from worldwide sources with country flags and source attribution
+- ⚡ **Real-time Updates**: Manual and automatic refresh options
+- 🎨 **Dark Mode**: Optimized for low-light viewing
+- 💾 **Caching**: Local storage caching with 15-minute freshness
 
 ## Getting Started
 
-### Installation
-
-Install the dependencies:
-
 ```bash
+# Install dependencies
 npm install
-```
 
-### Development
-
-Start the development server with HMR:
-
-```bash
+# Start development server
 npm run dev
 ```
 
-Your application will be available at `http://localhost:5173`.
+Visit `http://localhost:5173` and create your first feed column.
 
-## Building for Production
+## Creating Feed Columns
 
-Create a production build:
+Each column can be configured with:
+
+- **Query**: GDELT search query (e.g., `climate change sourcelang:english`)
+- **Timespan**: `1d`, `7d`, `1m`, or `3m`
+- **Sort**: By date or tone (emotional sentiment)
+- **Max Records**: Up to 250 articles per refresh
+
+### Query Syntax Examples
+
+```
+# Basic keyword search
+climate change
+
+# Language-specific
+sourcelang:english climate change
+
+# Multiple languages
+(sourcelang:english OR sourcelang:spanish) climate
+
+# Domain filtering
+domain:bbc.co.uk
+
+# Country filtering
+sourcecountry:US election
+
+# Combined filters
+"artificial intelligence" sourcelang:english -domain:blogspot.com
+```
+
+## Development
 
 ```bash
+# Type checking
+npm run typecheck
+
+# Production build
 npm run build
+
+# Preview production build
+npm run preview
 ```
 
-## Deployment
+## Tech Stack
 
-### Docker Deployment
+- **Framework**: React 19 + TypeScript
+- **Routing**: React Router 7
+- **Styling**: TailwindCSS
+- **Data**: GDELT Project API v2
+- **State**: React hooks + Context
+- **Caching**: LocalStorage with time-based invalidation
 
-This template includes three Dockerfiles optimized for different package managers:
+## Contributing
 
-- `Dockerfile` - for npm
-- `Dockerfile.pnpm` - for pnpm
-- `Dockerfile.bun` - for bun
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-To build and run using Docker:
+## License
 
-```bash
-# For npm
-docker build -t my-app .
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-# For pnpm
-docker build -f Dockerfile.pnpm -t my-app .
+## Acknowledgments
 
-# For bun
-docker build -f Dockerfile.bun -t my-app .
-
-# Run the container
-docker run -p 3000:3000 my-app
-```
-
-The containerized application can be deployed to any platform that supports Docker, including:
-
-- AWS ECS
-- Google Cloud Run
-- Azure Container Apps
-- Digital Ocean App Platform
-- Fly.io
-- Railway
-
-### DIY Deployment
-
-If you're familiar with deploying Node applications, the built-in app server is production-ready.
-
-Make sure to deploy the output of `npm run build`
-
-```
-├── package.json
-├── package-lock.json (or pnpm-lock.yaml, or bun.lockb)
-├── build/
-│   ├── client/    # Static assets
-│   └── server/    # Server-side code
-```
-
-## Styling
-
-This template comes with [Tailwind CSS](https://tailwindcss.com/) already configured for a simple default starting experience. You can use whatever CSS framework you prefer.
+- [GDELT Project](https://www.gdeltproject.org/) for their incredible news API
+- Inspired by TweetDeck's multi-column layout
+- Built with React Router and TailwindCSS
 
 ---
 
-Built with ❤️ using React Router.
+**Note**: This project is not affiliated with the GDELT Project. It's an independent tool that uses their public API.
