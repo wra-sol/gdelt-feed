@@ -1,1 +1,21 @@
- 
+name = "gdelt-explorer"
+type = "webpack"
+account_id = ""
+workers_dev = true
+route = ""
+zone_id = ""
+compatibility_date = "2024-01-01"
+
+[site]
+bucket = "./dist"
+entry-point = "workers-site"
+
+[build]
+command = "npm run build"
+
+# Production environment
+[env.production]
+workers_dev = false
+routes = [
+  { pattern = "your-domain.com/*", zone_id = "your-zone-id" }
+] 
