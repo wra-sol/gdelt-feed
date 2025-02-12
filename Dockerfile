@@ -13,8 +13,7 @@ FROM node:20-alpine AS build-env
 WORKDIR /app
 COPY --from=development-dependencies-env /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
-RUN ls -la dist  # Debug line to verify build output
+RUN npm run build || (echo "Build failed" && ls -la && exit 1)
 
 FROM node:20-alpine
 WORKDIR /app
