@@ -1,27 +1,30 @@
 FROM node:20-alpine AS development-dependencies-env
-COPY . /app
 WORKDIR /app
+COPY package*.json ./
 RUN npm ci
+COPY . .
 
 FROM node:20-alpine AS production-dependencies-env
-COPY ./package.json package-lock.json /app/
 WORKDIR /app
+COPY package*.json ./
 RUN npm ci --omit=dev
 
 FROM node:20-alpine AS build-env
-COPY . /app/
-COPY --from=development-dependencies-env /app/node_modules /app/node_modules
 WORKDIR /app
+COPY --from=development-dependencies-env /app/node_modules ./node_modules
+COPY . .
 RUN npm run build
+RUN ls -la dist  # Debug line to verify build output
 
 FROM node:20-alpine
 WORKDIR /app
-COPY --from=production-dependencies-env /app/node_modules /app/node_modules
-COPY --from=build-env /app/dist /app/dist
-COPY package.json /app/
+COPY --from=production-dependencies-env /app/node_modules ./node_modules
+COPY --from=build-env /app/dist ./dist
+COPY package.json ./
+COPY server.js ./
 
-# Add a simple express server to serve the static files
+# Add express for serving static files
 RUN npm install express@4
-COPY server.js /app/
+
 EXPOSE 3000
 CMD ["node", "server.js"]
