@@ -7,7 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const port = process.env.PORT || 3000;
 
-const distPath = join(__dirname, 'build');
+const distPath = join(__dirname, 'build/client');
 const indexPath = join(distPath, 'index.html');
 
 // Check if dist directory and index.html exist
