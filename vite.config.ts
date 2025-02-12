@@ -6,6 +6,7 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react(), reactRouter(), tailwindcss()],
+  root: '.',
   resolve: {
     alias: {
       '~': path.resolve(__dirname, './app')
