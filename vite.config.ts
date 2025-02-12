@@ -1,13 +1,20 @@
 import { defineConfig } from 'vite';
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import path from 'path';
 
 export default defineConfig({
-  plugins: [reactRouter(), tailwindcss()],
+  plugins: [react(), reactRouter(), tailwindcss()],
+  resolve: {
+    alias: {
+      '~': path.resolve(__dirname, './app')
+    }
+  },
   build: {
     outDir: 'dist',
     rollupOptions: {
-      input: 'app/main.tsx',
+      input: 'index.html'
     },
   },
 });

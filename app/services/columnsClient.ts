@@ -1,4 +1,4 @@
-import type { ColumnDefinition } from "~/routes/feed"; // Or wherever your interface is
+import type { ColumnDefinition } from "~/services/columnsDb";
 
 // Utility to safely fetch columns from localStorage
 export function getColumnsFromLocalStorage(): ColumnDefinition[] {

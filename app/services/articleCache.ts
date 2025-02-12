@@ -30,7 +30,7 @@ export async function getCachedArticles(columnId: string): Promise<{ articles: A
   if (result.rows.length === 0) return null;
 
   try {
-    const { articles: articlesText, last_fetched } = result.rows[0];
+    const { articles: articlesText, last_fetched } = result.rows[0] as { articles: string, last_fetched: string };
     const isFresh = (Date.now() - new Date(last_fetched).getTime()) < 15 * 60 * 1000;
 
     // Make sure we're parsing a string

@@ -41,17 +41,27 @@ export async function initDb() {
   return db;
 }
 
+type ColumnRow = {
+  id: string;
+  query: string;
+  timespan: string | null;
+  mode: string | null;
+  format: string | null;
+  sort: string | null;
+  maxrecords: number | null;
+};
+
 // Fetch all ColumnDefinition rows
 export async function getColumns(): Promise<(ColumnDefinition & { id: string })[]> {
   const database = await initDb();
-  const result = await database.query("SELECT * FROM columns");
-  return result.rows.map(row => ({
+  const result = await database.query<ColumnRow>("SELECT * FROM columns");
+  return result.rows.map((row) => ({
     id: row.id,
     query: row.query,
     timespan: row.timespan ?? undefined,
-    mode: row.mode ?? undefined,
-    format: row.format ?? undefined,
-    sort: row.sort ?? undefined,
+    mode: row.mode as GdeltMode | undefined,
+    format: row.format as GdeltFormat | undefined,
+    sort: row.sort as SortOrder | undefined,
     maxrecords: row.maxrecords ?? undefined,
   }));
 }

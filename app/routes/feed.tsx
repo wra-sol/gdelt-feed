@@ -5,7 +5,6 @@ import type { Article } from "../types/gdelt";
 import * as React from "react";
 import { getColumns, addColumn, initDb, updateColumn, deleteColumn } from "../services/columnsDb";
 import { Form } from "react-router";
-import { useEffect, useCallback } from 'react';
 import { cacheArticles, getCachedArticles, initArticleCache } from "../services/articleCache";
 
 interface ColumnDefinition {
