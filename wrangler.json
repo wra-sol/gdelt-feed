@@ -1,0 +1,23 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "meridian-news-lens",
+	"account_id": "6b149553c5075c79bbc132c481f387fe",
+	"main": "./workers/app.ts",
+	"compatibility_date": "2025-10-08",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": {
+		"enabled": true
+	},
+	"upload_source_maps": true,
+	"vars": {
+		"ACCESS_GATE_ENABLED": ""
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "meridian-db",
+			"database_id": "709d6028-b7aa-40bb-86df-6f7d27c33a08",
+			"migrations_dir": "migrations"
+		}
+	]
+}

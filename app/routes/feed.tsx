@@ -3,9 +3,10 @@ import { GdeltApi } from "../services/gdeltApi";
 import type { GdeltFormat, GdeltMode, SortOrder } from "../services/gdeltApi";
 import type { Article } from "../types/gdelt";
 import * as React from "react";
-import { getColumns, addColumn, initDb, updateColumn, deleteColumn } from "../services/columnsDb";
-import { Form } from "react-router";
-import { cacheArticles, getCachedArticles, initArticleCache } from "../services/articleCache";
+import { getColumns, addColumn, updateColumn, deleteColumn } from "../services/columnsDb";
+import { Form, useRouteError, isRouteErrorResponse } from "react-router";
+import { cacheArticles, getCachedArticles } from "../services/articleCache";
+import { isWriteAllowed, writeDenied } from "~/lib/access";
 
 interface ColumnDefinition {
     query: string;          // e.g. "climate change sourcelang:english"
@@ -27,14 +28,16 @@ interface LoaderData {
 }
 
 // Modify the action to handle both create, update, and delete
-export async function action({ request }: LoaderFunctionArgs) {
+export async function action({ request, context }: LoaderFunctionArgs) {
+    if (!isWriteAllowed(request, context.cloudflare.env)) return writeDenied();
+    const db = context.cloudflare.env.DB;
     const formData = await request.formData();
     const intent = formData.get("intent")?.toString();
 
     if (intent === "delete") {
         const id = formData.get("id")?.toString();
         if (id) {
-            await deleteColumn(id);
+            await deleteColumn(db, id);
         }
     } else if (intent === "create" || intent === "update") {
         const query = formData.get("query")?.toString() || "";
@@ -45,7 +48,7 @@ export async function action({ request }: LoaderFunctionArgs) {
             parseInt(formData.get("maxrecords")?.toString() || "0", 10) : undefined;
 
         if (query.length > 0) {
-            await addColumn({
+            await addColumn(db, {
                 query,
                 timespan,
                 mode,
@@ -59,44 +62,51 @@ export async function action({ request }: LoaderFunctionArgs) {
 }
 
 export async function getArticlesForColumn(
+    db: D1Database,
     colDef: ColumnDefinition & { id: string },
     forceRefresh = false
 ): Promise<Article[]> {
     // Skip cache if force refresh
     if (!forceRefresh) {
-        const cached = await getCachedArticles(colDef.id);
+        const cached = await getCachedArticles(db, colDef.id);
         if (cached?.isFresh) {
             return cached.articles;
         }
     }
 
-    // Fetch new results
-    const articles = await GdeltApi.searchArticles({
-        query: colDef.query,
-        mode: colDef.mode,
-        timespan: colDef.timespan,
-        sort: colDef.sort,
-        maxrecords: colDef.maxrecords,
-    });
+    // Fetch new results; degrade gracefully on GDELT failure (throttle/outage)
+    let articles;
+    try {
+        articles = await GdeltApi.searchArticles({
+            query: colDef.query,
+            mode: colDef.mode,
+            timespan: colDef.timespan,
+            sort: colDef.sort,
+            maxrecords: colDef.maxrecords,
+        });
+    } catch (error) {
+        console.error("GDELT fetch failed; serving cached/stale data:", error);
+        const stale = await getCachedArticles(db, colDef.id);
+        return stale?.articles ?? [];
+    }
 
     // Cache the new results
-    await cacheArticles(colDef.id, articles.articles || []);
+    await cacheArticles(db, colDef.id, articles.articles || []);
 
     return articles.articles || [];
 }
 
-export async function loader({ request }: LoaderFunctionArgs): Promise<LoaderData> {
-    await initDb();
-    await initArticleCache();
+export async function loader({ request, context }: LoaderFunctionArgs): Promise<LoaderData> {
+    const db = context.cloudflare.env.DB;
 
     // Check if this is a force refresh request
     const url = new URL(request.url);
     const forceRefresh = url.searchParams.get('refresh') === 'true';
 
-    const colDefs = await getColumns();
+    const colDefs = await getColumns(db);
     const columns: ColumnData[] = await Promise.all(colDefs.map(async (def) => ({
         definition: def,
-        articles: await getArticlesForColumn(def, forceRefresh),
+        articles: await getArticlesForColumn(db, def, forceRefresh),
     })));
 
     return {
@@ -180,6 +190,27 @@ function UpdateTimer({ lastUpdated }: { lastUpdated: string }) {
         <span className="text-sm text-gray-400">
             Updated {new Date(lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </span>
+    );
+}
+
+export function ErrorBoundary() {
+    const error = useRouteError();
+    const message = isRouteErrorResponse(error)
+        ? `${error.status} ${error.statusText}`
+        : error instanceof Error
+            ? error.message
+            : "Unexpected error";
+
+    return (
+        <div className="mx-auto max-w-3xl p-8">
+            <div className="rounded border border-red-800 bg-gray-900 p-6 text-gray-300">
+                <h1 className="mb-2 text-xl font-semibold text-red-300">Feed unavailable</h1>
+                <p className="text-sm">{message}</p>
+                <p className="mt-3 text-sm text-gray-500">
+                    GDELT may be throttling or down — data refreshes every 15 minutes. Try again shortly.
+                </p>
+            </div>
+        </div>
     );
 }
 

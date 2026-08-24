@@ -4,3 +4,10 @@
 # React Router
 /.react-router/
 /build/
+
+# Wrangler / CF
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+
+*.tsbuildinfo

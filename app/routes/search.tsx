@@ -1,9 +1,11 @@
-import { 
-  useLoaderData, 
-  useNavigation, 
-  Form, 
+import {
+  useLoaderData,
+  useNavigation,
+  Form,
   useSubmit,
   useSearchParams,
+  useRouteError,
+  isRouteErrorResponse,
   type LoaderFunctionArgs
 } from "react-router";
 import * as React from "react";
@@ -25,6 +27,27 @@ export async function loader({ request }: LoaderFunctionArgs) {
   }
   const results = await GdeltApi.searchArticles({ query });
   return { articles: results.articles, query };
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const message = isRouteErrorResponse(error)
+    ? `${error.status} ${error.statusText}`
+    : error instanceof Error
+      ? error.message
+      : "Unexpected error";
+
+  return (
+    <div className="max-w-4xl mx-auto p-4">
+      <div className="rounded border border-red-800 bg-gray-900 p-6 text-gray-300">
+        <h1 className="mb-2 text-xl font-semibold text-red-300">Search unavailable</h1>
+        <p className="text-sm">{message}</p>
+        <p className="mt-3 text-sm text-gray-500">
+          GDELT may be throttling or down — try again in a few minutes.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function Search() {

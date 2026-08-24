@@ -16,6 +16,7 @@ export default function Layout() {
           <nav className="flex items-center space-x-6 text-sm font-medium">
             <NavLink to="/">Home</NavLink>
             <NavLink to="/search">Search</NavLink>
+            <NavLink to="/lenses">Lenses</NavLink>
             <NavLink to="/feed">Feed</NavLink>
             <NavLink to="/articles">Articles</NavLink>
             <NavLink to="/visualizations">Visualizations</NavLink>

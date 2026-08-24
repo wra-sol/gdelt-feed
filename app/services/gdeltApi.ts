@@ -1,7 +1,7 @@
 import type { Article } from '../types/gdelt';
 
-export type GdeltMode = 
-  | 'artlist' 
+export type GdeltMode =
+  | 'artlist'
   | 'artgallery'
   | 'timelinevol'
   | 'tonechart'
@@ -30,9 +30,32 @@ export interface GdeltResponse {
   timespan: string;
   query: string;
   articles: Article[];
+  error?: string;
 }
 
-const GDELT_API_URL = 'https://api.gdeltproject.org/api/v2/doc/doc';
+const GDELT_HOSTS = [
+  'https://api.gdeltproject.org',
+  'https://api-backup.gdeltproject.org',
+] as const;
+
+// GDELT intermittently blocks non-browser user agents (community-documented).
+const BROWSER_UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+const FETCH_TIMEOUT_MS = 20_000;
+
+/** GDELT's throttle arrives as HTTP 200 plain text, not a 429. */
+const THROTTLE_MARKERS = [
+  'Please limit requests to one every 5 seconds',
+  'rate limit',
+];
+
+export class GdeltRateLimitError extends Error {
+  constructor(message = 'GDELT rate limited this client') {
+    super(message);
+    this.name = 'GdeltRateLimitError';
+  }
+}
 
 export class GdeltApi {
   private static validateTimespan(timespan: string): boolean {
@@ -43,16 +66,62 @@ export class GdeltApi {
     return /^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(callback);
   }
 
-  static async searchArticles({
+  private static isThrottleText(text: string): boolean {
+    const lower = text.slice(0, 400).toLowerCase();
+    return THROTTLE_MARKERS.some((m) => lower.includes(m));
+  }
+
+  /**
+   * Raw fetch across primary then backup host. Throws GdeltRateLimitError on
+   * throttle text or HTTP 429. Returns parsed JSON for json format.
+   */
+  static async fetchRaw(params: URLSearchParams): Promise<unknown> {
+    let lastError: Error = new Error('GDELT request never attempted');
+
+    for (const host of GDELT_HOSTS) {
+      const url = `${host}/api/v2/doc/doc?${params.toString()}`;
+      try {
+        const response = await fetch(url, {
+          headers: { 'User-Agent': BROWSER_UA },
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+
+        if (response.status === 429) {
+          throw new GdeltRateLimitError();
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        const rawText =
+          contentType.includes('application/json') ? null : await response.text();
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status} from ${host}`);
+        }
+        if (rawText !== null) {
+          if (this.isThrottleText(rawText)) throw new GdeltRateLimitError();
+          throw new Error(`Non-JSON response: ${rawText.slice(0, 120)}`);
+        }
+
+        return (await response.json()) as unknown;
+      } catch (error) {
+        if (error instanceof GdeltRateLimitError) throw error;
+        lastError = error instanceof Error ? error : new Error(String(error));
+        // try backup host on anything else (timeout, 5xx, network)
+      }
+    }
+
+    throw lastError;
+  }
+
+  static buildParams({
     query,
     mode = 'artlist',
     timespan,
     format = 'json',
     maxrecords = 75,
     callback,
-    sort = 'DateDesc'
-  }: GdeltSearchParams): Promise<GdeltResponse> {
-    // Validate parameters
+    sort = 'DateDesc',
+  }: GdeltSearchParams): URLSearchParams {
     if (query.length < 3 || query.length > 1000) {
       throw new Error('Query must be between 3 and 1000 characters');
     }
@@ -69,49 +138,33 @@ export class GdeltApi {
       throw new Error('maxrecords must be between 1 and 250');
     }
 
-    // Build query parameters
     const params = new URLSearchParams({
       query,
       mode,
       format,
       maxrecords: maxrecords.toString(),
-      sort
+      sort,
     });
 
     if (timespan) params.append('timespan', timespan);
     if (callback && format === 'jsonp') params.append('callback', callback);
-
-    try {
-      const response = await fetch(`${GDELT_API_URL}?${params.toString()}`);
-      
-      if (!response.ok) {
-        if (response.status === 429) {
-          const resetTime = response.headers.get('X-RateLimit-Reset');
-          throw new Error(`Rate limit exceeded. Reset at ${new Date(Number(resetTime) * 1000).toLocaleString()}`);
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      // NEW: Check if response is JSON
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        const rawText = await response.text();
-        throw new Error(`GDELT API error: Response not JSON. Received: ${rawText.slice(0, 100)}`);
-      }
-
-      // Then parse JSON
-      const data = await response.json();
-      
-      if (data.status === 'ERROR') {
-        throw new Error(data.error || 'Unknown API error');
-      }
-
-      return data as GdeltResponse;
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`GDELT API error: ${error.message}`);
-      }
-      throw new Error('Unknown error occurred while fetching data');
-    }
+    return params;
   }
-} 
+
+  /** Artlist search returning typed articles. */
+  static async searchArticles(params: GdeltSearchParams): Promise<GdeltResponse> {
+    const data = (await this.fetchRaw(this.buildParams(params))) as Partial<GdeltResponse>;
+
+    if (data.status === 'ERROR') {
+      throw new Error(data.error || 'Unknown API error');
+    }
+
+    return {
+      status: 'OK',
+      totalResults: data.totalResults ?? 0,
+      timespan: data.timespan ?? '',
+      query: data.query ?? params.query,
+      articles: data.articles ?? [],
+    };
+  }
+}
