@@ -10,7 +10,11 @@
 	},
 	"upload_source_maps": true,
 	"vars": {
-		"ACCESS_GATE_ENABLED": ""
+		"ACCESS_GATE_ENABLED": "",
+		"NGRAMS_ENABLED": "true"
+	},
+	"triggers": {
+		"crons": ["6-59/15 * * * *"]
 	},
 	"d1_databases": [
 		{

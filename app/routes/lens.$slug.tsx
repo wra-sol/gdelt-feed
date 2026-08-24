@@ -11,6 +11,7 @@ import { GdeltApi, GdeltRateLimitError } from "~/services/gdeltApi";
 import { getCachedArticles, cacheArticles } from "~/services/articleCache";
 import { getLensBySlug, getWatchesForLens, addWatch, deleteWatch } from "~/services/lensDb";
 import { compileWatchQuery, type WatchDef } from "~/services/watchEngine";
+import { getRecentNgramHits } from "~/services/ngrams";
 import { groupArticlesByTitle, parseSeenDate } from "~/lib/grouping";
 import { countryByFips, flagEmoji } from "~/data/countries";
 import { isWriteAllowed, writeDenied } from "~/lib/access";
@@ -75,6 +76,28 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 		changedCount += fresh.length;
 	}
 
+	// Blend in ngram-derived coverage (throttle-proof secondary source)
+	const ngramHits = await getRecentNgramHits(db, views.map((v) => v.id));
+	const hitsByWatch = new Map<string, typeof ngramHits>();
+	for (const hit of ngramHits) {
+		if (!hitsByWatch.has(hit.watchId)) hitsByWatch.set(hit.watchId, []);
+		hitsByWatch.get(hit.watchId)!.push(hit);
+	}
+	const ngramUrls = new Set<string>();
+	for (const view of views) {
+		const existing = new Set(view.articles.map((a) => a.url));
+		for (const hit of hitsByWatch.get(view.id) ?? []) {
+			if (existing.has(hit.url)) continue;
+			ngramUrls.add(hit.url);
+			view.articles.push({
+				url: hit.url,
+				title: hit.title ?? hit.url,
+				socialimage: hit.imageUrl,
+				seendate: hit.publishedAt.replace(/[-:]/g, "").slice(0, 15) + "Z",
+			});
+		}
+	}
+
 	return {
 		lens: {
 			id: lens.id,
@@ -104,7 +127,9 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 			totalArticles: views.reduce((n, v) => n + v.articles.length, 0),
 			changedCount,
 			firstVisit: !lastSeen,
+			ngramCount: ngramUrls.size,
 		},
+		ngramUrls: [...ngramUrls],
 	};
 }
 
@@ -137,6 +162,7 @@ export async function action({ request, context }: LoaderFunctionArgs) {
 
 function WatchCard({
 	watch,
+	ngramUrls,
 	canEdit,
 }: {
 	watch: {
@@ -150,8 +176,10 @@ function WatchCard({
 		stale: boolean;
 		newCount: number;
 	};
+	ngramUrls: string[];
 	canEdit: boolean;
 }) {
+	const ngramSet = new Set(ngramUrls);
 	return (
 		<div className="flex w-[360px] flex-shrink-0 flex-grow-0 flex-col rounded border border-gray-700 bg-gray-900">
 			<div className="sticky top-0 border-b border-gray-700 bg-gray-900/95 p-4">
@@ -208,6 +236,11 @@ function WatchCard({
 									{title}
 								</a>
 								<div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+									{ngramSet.has(first.url) && (
+										<span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-blue-300">
+											ngram
+										</span>
+									)}
 									<span>{first.domain ?? "N/A"}</span>
 									{seen && <span>{seen.toLocaleString()}</span>}
 									{typeof first.tone === "number" && (
@@ -227,7 +260,7 @@ function WatchCard({
 }
 
 export default function LensPage() {
-	const { lens, watches, pulse } = useLoaderData<typeof loader>();
+	const { lens, watches, pulse, ngramUrls } = useLoaderData<typeof loader>();
 	const navigation = useNavigation();
 	const [showAdd, setShowAdd] = React.useState(false);
 
@@ -264,6 +297,9 @@ export default function LensPage() {
 							</span>
 						) : (
 							<span>No changes since your last visit</span>
+						)}
+						{pulse.ngramCount > 0 && (
+							<span className="ml-2 text-gray-600">incl. {pulse.ngramCount} via ngram stream</span>
 						)}
 					</p>
 				</div>
@@ -319,7 +355,7 @@ export default function LensPage() {
 			) : (
 				<div className="flex space-x-4 overflow-x-auto pb-4">
 					{watches.map((w) => (
-						<WatchCard key={w.id} watch={w} canEdit />
+						<WatchCard key={w.id} watch={w} ngramUrls={ngramUrls} canEdit />
 					))}
 				</div>
 			)}
