@@ -1,5 +1,8 @@
 import type { MetaFunction } from "react-router";
 import { Link } from "react-router";
+import { buttonVariants } from "~/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { cn } from "~/lib/utils";
 
 export const meta: MetaFunction = () => [
 	{ title: "Meridian — a lens over the world's press" },
@@ -40,68 +43,78 @@ const capabilities = [
 	},
 ];
 
-function MeridianMark({ size = 44 }: { size?: number }) {
+function MeridianMark({ size = 56 }: { size?: number }) {
 	return (
-		<svg width={size} height={size} viewBox="0 0 48 48" aria-hidden>
-			<circle cx="24" cy="24" r="21" fill="none" stroke="#3b82f6" strokeWidth="2" />
-			<ellipse cx="24" cy="24" rx="9" ry="21" fill="none" stroke="#3b82f6" strokeWidth="1.5" />
-			<line x1="24" y1="3" x2="24" y2="45" stroke="#60a5fa" strokeWidth="1.5" />
-			<line x1="4" y1="24" x2="44" y2="24" stroke="#1e3a5f" strokeWidth="1.5" />
+		<svg width={size} height={size} viewBox="0 0 48 48" aria-hidden className="text-primary">
+			<circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" strokeWidth="2.5" />
+			<ellipse cx="24" cy="24" rx="9" ry="21" fill="none" stroke="currentColor" strokeWidth="1.5" />
+			<line x1="24" y1="3" x2="24" y2="45" stroke="currentColor" strokeWidth="1.5" />
+			<line x1="4" y1="24" x2="44" y2="24" stroke="currentColor" strokeWidth="1.5" opacity="0.55" />
 		</svg>
 	);
 }
 
 export default function Home() {
 	return (
-		<div className="mx-auto max-w-5xl px-6 py-12">
+		<div className="mx-auto max-w-5xl px-6 py-14">
 			<div className="flex items-center gap-4">
 				<MeridianMark />
-				<h1 className="text-4xl font-bold tracking-tight text-gray-100">Meridian</h1>
+				<div>
+					<p
+						className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground"
+					>
+						Global press intelligence
+					</p>
+					<h1 className="font-heading text-5xl font-bold tracking-tight text-foreground">
+						Meridian
+					</h1>
+				</div>
 			</div>
 
-			<p className="mt-6 max-w-2xl text-xl leading-relaxed text-gray-300">
+			<p className="mt-8 max-w-2xl font-heading text-2xl leading-snug text-foreground">
 				A lens over the world's press. Pick a place, see what the world is saying about it —
 				what's rising, how tone is moving, what changed since you last looked.
 			</p>
-			<p className="mt-3 max-w-2xl text-sm text-gray-500">
+			<p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
 				A radar, not a reader: we surface the signal, you click out to read. Built on the free,
 				keyless{" "}
 				<a
 					href="https://www.gdeltproject.org/"
 					target="_blank"
 					rel="noopener noreferrer"
-					className="text-blue-400 hover:underline"
+					className="text-primary underline-offset-4 hover:underline"
 				>
 					GDELT Project
 				</a>{" "}
 				data covering 65+ languages, refreshed every 15 minutes.
 			</p>
 
-			<div className="mt-8 flex gap-3">
-				<Link
-					to="/lenses"
-					className="rounded bg-blue-600 px-5 py-2.5 font-medium text-white hover:bg-blue-500"
-				>
+			<div className="mt-8 flex flex-wrap gap-3">
+				<Link to="/lenses" className={cn(buttonVariants({ size: "touch" }))}>
 					Open the lenses →
 				</Link>
 				<a
 					href="/rss/lens/canada"
-					className="rounded border border-gray-600 px-5 py-2.5 font-medium text-gray-300 hover:border-gray-400"
+					className={cn(buttonVariants({ variant: "outline", size: "touch" }))}
 				>
 					Canada RSS feed
 				</a>
 			</div>
 
-			<div className="mt-14 grid grid-cols-1 gap-6 md:grid-cols-2">
+			<div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-2">
 				{capabilities.map((c) => (
-					<div key={c.title} className="rounded border border-gray-800 bg-gray-900/60 p-5">
-						<h2 className="font-semibold text-blue-300">{c.title}</h2>
-						<p className="mt-2 text-sm leading-relaxed text-gray-400">{c.body}</p>
-					</div>
+					<Card key={c.title} className="transition-colors hover:border-primary/40">
+						<CardHeader>
+							<CardTitle className="font-heading text-primary">{c.title}</CardTitle>
+						</CardHeader>
+						<CardContent>
+							<p className="text-sm leading-relaxed text-muted-foreground">{c.body}</p>
+						</CardContent>
+					</Card>
 				))}
 			</div>
 
-			<p className="mt-14 text-xs text-gray-600">
+			<p className="mt-16 text-xs leading-relaxed text-muted-foreground/70">
 				Mentions-based monitoring with curated watches · results depend on GDELT index coverage ·
 				Powered by GDELT Project API · not affiliated with the GDELT Project.
 			</p>

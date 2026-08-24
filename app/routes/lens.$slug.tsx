@@ -7,7 +7,6 @@ import {
 	useSubmit,
 	type LoaderFunctionArgs,
 } from "react-router";
-import { ConfirmDialog } from "~/components/ConfirmDialog";
 import type { Article } from "~/types/gdelt";
 import { swr } from "~/services/coverage";
 import { isValidTimespan } from "~/services/gdeltApi";
@@ -21,6 +20,30 @@ import { getRecentNgramHits } from "~/services/ngrams";
 	import { lensFlag } from "~/data/countries";
 import { writeGate } from "~/lib/access";
 import { getCloudflare } from "~/lib/cloudflare-context";
+import { Badge } from "~/components/ui/badge";
+import { Button, buttonVariants } from "~/components/ui/button";
+import { Input, inputVariants } from "~/components/ui/input";
+import { Skeleton } from "~/components/ui/skeleton";
+import { Spinner } from "~/components/ui/spinner";
+import { cn } from "~/lib/utils";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from "~/components/ui/empty";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
+import { RadarIcon } from "lucide-react";
 
 /**
  * Per-watch view. docArticles is the DOC-coverage primary list — the ONLY
@@ -231,7 +254,7 @@ function WatchList({ articles, ngramUrls }: { articles: ArticleGroup[]; ngramUrl
 	const ngramSet = new Set(ngramUrls);
 	if (articles.length === 0) {
 		return (
-			<p className="text-sm text-gray-400">
+			<p className="text-sm text-muted-foreground">
 				No coverage in this window — sparse results usually mean thin index coverage, not that
 				nothing happened.
 			</p>
@@ -243,25 +266,32 @@ function WatchList({ articles, ngramUrls }: { articles: ArticleGroup[]; ngramUrl
 				const first = grouped[0];
 				const seenLabel = formatSeenUtc(first.seendate);
 				return (
-					<div key={title} className="border-t border-gray-800 pt-3 first:border-0 first:pt-0">
+					<div key={title} className="border-t border-border pt-3 first:border-0 first:pt-0">
 						<a
 							href={first.url}
 							target="_blank"
 							rel="noopener noreferrer"
-							className="text-sm font-medium text-blue-400 hover:underline"
+							className="text-sm font-medium text-foreground underline-offset-4 hover:text-primary hover:underline"
 						>
 							{title}
 						</a>
-						<div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+						<div className="mt-1 flex items-center gap-2 font-mono text-xs text-muted-foreground">
 							{ngramSet.has(first.url) && (
-								<span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-blue-300">
+								<Badge variant="secondary" className="uppercase tracking-wide">
 									ngram
-								</span>
+								</Badge>
 							)}
 							<span>{first.domain ?? "N/A"}</span>
 							{seenLabel && <span>{seenLabel}</span>}
 							{typeof first.tone === "number" && (
-								<span className={first.tone >= 0 ? "text-green-600" : "text-red-500"}>
+								<span
+									className={
+										first.tone >= 0
+											? "text-success"
+											: "text-destructive"
+									}
+								>
+									{first.tone > 0 ? "+" : ""}
 									{first.tone.toFixed(1)}
 								</span>
 							)}
@@ -284,21 +314,22 @@ function WatchCard({
 	onAskDelete: (w: { id: string; label: string }) => void;
 }) {
 	return (
-		<div className="relative flex max-h-[80vh] w-[360px] flex-shrink-0 flex-grow-0 flex-col rounded border border-gray-700 bg-gray-900">
-			<div className="sticky top-0 z-10 border-b border-gray-700 bg-gray-900/95 p-4">
+		<div className="relative flex max-h-[80vh] w-[360px] flex-shrink-0 flex-grow-0 flex-col rounded-xl border border-border bg-card">
+			<div className="sticky top-0 z-10 rounded-t-xl border-b border-border bg-card/95 p-4 backdrop-blur">
 				<div className="mb-1 flex items-start justify-between gap-2">
-					<h3 className="font-semibold text-blue-300">{watch.label}</h3>
+					<h3 className="font-heading font-semibold text-foreground">{watch.label}</h3>
 					{canEdit && (
-						<button
-							type="button"
-							onClick={() => onAskDelete({ id: watch.id, label: watch.label })}
-							className="text-red-400 hover:text-red-300"
+						<Button
+							variant="ghost"
+							size="touch"
+							className="-mr-2 -mt-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+							onPress={() => onAskDelete({ id: watch.id, label: watch.label })}
 						>
 							Delete
-						</button>
+						</Button>
 					)}
 				</div>
-				<div className="text-xs text-gray-500">
+				<div className="font-mono text-xs text-muted-foreground">
 					{watch.timespan && <span className="mr-2">· {watch.timespan}</span>}
 					{watch.geoTerms.length > 0 && (
 						<span className="mr-2">· geo: {watch.geoTerms.join(", ")}</span>
@@ -309,14 +340,15 @@ function WatchCard({
 
 			<React.Suspense
 				fallback={
-					<div className="space-y-3 p-4">
-						<p className="text-xs text-blue-300" role="status">
+					<div className="space-y-3 p-4" role="status" aria-label="Fetching latest coverage">
+						<p className="flex items-center gap-2 text-xs text-primary">
+							<Spinner className="size-3" />
 							Fetching latest coverage…
 						</p>
 						{[0, 1, 2].map((i) => (
-							<div key={i} className="animate-pulse space-y-1.5 border-t border-gray-800 pt-3 first:border-0 first:pt-0">
-								<div className="h-3 w-full rounded bg-gray-800" />
-								<div className="h-2.5 w-2/3 rounded bg-gray-800" />
+							<div key={i} className="space-y-1.5 border-t border-border pt-3 first:border-0 first:pt-0">
+								<Skeleton className="h-3 w-full" />
+								<Skeleton className="h-2.5 w-2/3" />
 							</div>
 						))}
 					</div>
@@ -338,14 +370,12 @@ function CardResolved({ watch }: { watch: WatchData }) {
 
 	return (
 		<>
-			<div className="border-b border-gray-700 px-4 pb-2 pt-3 text-xs text-gray-500">
-				{newCount > 0 && (
-					<span className="mr-2 rounded-full bg-blue-600 px-2 py-0.5 font-semibold text-white">
-						{newCount} new
-					</span>
+			<div className="flex items-center gap-2 border-b border-border px-4 pb-2 pt-3 text-xs text-muted-foreground">
+				{newCount > 0 && <Badge>{newCount} new</Badge>}
+				<span className="font-mono">{total} articles</span>
+				{stale && (
+					<span className="text-warning">· stale (GDELT throttling)</span>
 				)}
-				<span className="mr-2">{total} articles</span>
-				{stale && <span className="text-yellow-600">· stale (GDELT throttling)</span>}
 			</div>
 			<div className="space-y-4 overflow-y-auto p-4">
 				<WatchList articles={groups} ngramUrls={ngramUrls} />
@@ -370,69 +400,80 @@ export default function LensPage() {
 
 	return (
 		<div className="mx-auto p-4">
-			<div className="mb-4 flex items-center justify-between rounded border border-gray-700 bg-gray-900 p-4">
+			<div className="mb-4 flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
 				<div>
-					<h1 className="flex items-center gap-2 text-xl font-bold text-blue-300">
+					<h1 className="flex items-center gap-2 font-heading text-xl font-bold tracking-tight text-foreground">
 						{lens.flag && <span className="text-2xl">{lens.flag}</span>}
 						{lens.name}
 					</h1>
-					{lens.description && <p className="mt-1 text-sm text-gray-400">{lens.description}</p>}
+					{lens.description && <p className="mt-1 text-sm text-muted-foreground">{lens.description}</p>}
 				</div>
-				<div className="text-right text-sm text-gray-400">
+				<div className="text-right font-mono text-sm text-muted-foreground">
 					<p>
-						<span className="text-lg font-semibold text-gray-200">{pulse.watchCount}</span>{" "}
+						<span className="text-lg font-semibold tabular-nums text-foreground">{pulse.watchCount}</span>{" "}
 						watches ·{" "}
-						<span className="text-lg font-semibold text-gray-200">{pulse.totalArticles}</span>{" "}
+						<span className="text-lg font-semibold tabular-nums text-foreground">{pulse.totalArticles}</span>{" "}
 						articles
 					</p>
 					<p className="mt-1">
 						{pulse.firstVisit ? (
-							<span className="text-gray-500">First visit — baseline recorded</span>
+							<span>First visit — baseline recorded</span>
 						) : pulse.changedCount > 0 ? (
-							<span className="font-semibold text-blue-300">
+							<span className="font-semibold text-primary">
 								{pulse.changedCount} new since your last visit
 							</span>
 						) : (
 							<span>No changes since your last visit</span>
 						)}
 						{pulse.ngramCount > 0 && (
-							<span className="ml-2 text-gray-600">incl. {pulse.ngramCount} via ngram stream</span>
+							<span className="ml-2 opacity-70">incl. {pulse.ngramCount} via ngram stream</span>
 						)}
 					</p>
 				</div>
 			</div>
 
-			<div className="mb-4 flex items-center gap-2">
-				<button
-					onClick={() => setShowAdd((s) => !s)}
-					disabled={navigation.state !== "idle"}
-					className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500 disabled:opacity-50"
+			{navigation.state !== "idle" && (
+				<p role="status" className="mb-3 flex items-center gap-2 font-mono text-xs text-muted-foreground">
+					<Spinner className="size-3" />
+					Working…
+				</p>
+			)}
+
+			<div className="mb-4 flex flex-wrap items-center gap-2">
+				<Button
+					onPress={() => setShowAdd((s) => !s)}
+					isDisabled={navigation.state !== "idle"}
+					size="touch"
 				>
 					+ Add watch
-				</button>
-				<Link prefetch="intent" to={`/lens/${lens.slug}/trends`} className="text-sm text-blue-400 hover:text-blue-300">
+				</Button>
+				<Link prefetch="intent" viewTransition to={`/lens/${lens.slug}/trends`} className={cn(buttonVariants({ variant: "outline", size: "touch" }))}>
 					Trends →
 				</Link>
-				<Link prefetch="intent" to="/lenses" className="text-sm text-gray-400 hover:text-gray-300">
+				<Link prefetch="intent" viewTransition to="/lenses" className={cn(buttonVariants({ variant: "ghost", size: "touch", className: "text-muted-foreground" }))}>
 					All lenses →
 				</Link>
 			</div>
 
 			{showAdd && (
-				<Form method="post" className="mb-6 grid grid-cols-1 gap-3 rounded border border-gray-700 bg-gray-900 p-4 md:grid-cols-2">
+				<Form method="post" className="mb-6 grid grid-cols-1 gap-4 rounded-xl border border-border bg-card p-4 md:grid-cols-2">
 					<input type="hidden" name="intent" value="add-watch" />
 					<input type="hidden" name="lensId" value={lens.id} />
-					<label className="text-sm text-gray-300 md:col-span-2">
+					<label className="flex flex-col gap-1 text-sm font-medium text-foreground md:col-span-2">
 						Label
-						<input name="label" className="mt-1 w-full rounded border border-gray-600 bg-gray-800 px-2 py-1.5" placeholder="e.g., Carbon policy" />
+						<Input name="label" placeholder="e.g., Carbon policy" />
 					</label>
-					<label className="text-sm text-gray-300 md:col-span-2">
+					<label className="flex flex-col gap-1 text-sm font-medium text-foreground md:col-span-2">
 						Terms (comma-separated)
-						<input name="terms" required className="mt-1 w-full rounded border border-gray-600 bg-gray-800 px-2 py-1.5" placeholder='"carbon tax", emissions, Ottawa' />
+						<Input name="terms" required placeholder='"carbon tax", emissions, Ottawa' inputMode="text" />
 					</label>
-					<label className="text-sm text-gray-300">
+					<label className="flex flex-col gap-1 text-sm font-medium text-foreground">
 						Timespan
-						<select name="timespan" className="mt-1 w-full rounded border border-gray-600 bg-gray-800 px-2 py-1.5">
+						<select
+							name="timespan"
+							className={cn(inputVariants(), "appearance-none bg-card")}
+							defaultValue="7d"
+						>
 							<option value="7d">7 days</option>
 							<option value="14d">14 days</option>
 							<option value="1m">1 month</option>
@@ -440,15 +481,28 @@ export default function LensPage() {
 						</select>
 					</label>
 					<div className="flex items-end">
-						<button type="submit" className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-500">
+						<Button type="submit" pending={navigation.state === "submitting"} pendingLabel="Creating…">
 							Create watch
-						</button>
+						</Button>
 					</div>
 				</Form>
 			)}
 
 			{watches.length === 0 ? (
-				<p className="text-gray-400">No watches in this lens yet.</p>
+				<Empty className="mt-6 border border-dashed">
+					<EmptyHeader>
+						<EmptyMedia>
+							<RadarIcon aria-hidden />
+						</EmptyMedia>
+						<EmptyTitle>No watches in this lens yet</EmptyTitle>
+						<EmptyDescription>
+							A watch follows a topic in this place — terms are matched across 65+ languages.
+						</EmptyDescription>
+					</EmptyHeader>
+					<Button onPress={() => setShowAdd(true)} variant="outline" size="touch">
+						Add the first watch
+					</Button>
+				</Empty>
 			) : (
 				<div className="flex space-x-4 overflow-x-auto pb-4">
 					{watches.map((w) => (
@@ -457,22 +511,38 @@ export default function LensPage() {
 				</div>
 			)}
 
-			<ConfirmDialog
-				open={pendingDelete !== null}
-				title="Delete watch?"
-				description={pendingDelete ? `This removes “${pendingDelete.label}” and its saved coverage from this lens.` : undefined}
-				confirmLabel="Delete watch"
-				cancelLabel="Keep it"
-				onConfirm={() => {
-					if (!pendingDelete) return;
-					const formData = new FormData();
-					formData.append("intent", "delete-watch");
-					formData.append("watchId", pendingDelete.id);
-					submit(formData, { method: "post" });
-					setPendingDelete(null);
+			<AlertDialog
+				isOpen={pendingDelete !== null}
+				onOpenChange={(open) => {
+					if (!open) setPendingDelete(null);
 				}}
-				onCancel={() => setPendingDelete(null)}
-			/>
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete “{pendingDelete?.label}”?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This removes the watch and its saved coverage from this lens. This can't be
+							undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Keep it</AlertDialogCancel>
+						<AlertDialogAction
+							variant="destructive"
+							onPress={() => {
+								if (!pendingDelete) return;
+								const formData = new FormData();
+								formData.append("intent", "delete-watch");
+								formData.append("watchId", pendingDelete.id);
+								submit(formData, { method: "post" });
+								setPendingDelete(null);
+							}}
+						>
+							Delete watch
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

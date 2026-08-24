@@ -7,6 +7,10 @@ import { getCachedArticles } from "~/services/articleCache";
 import { getNgramDailySeries } from "~/services/ngrams";
 import { TrendChart } from "~/components/TrendChart";
 import { getCloudflare } from "~/lib/cloudflare-context";
+import { Card } from "~/components/ui/card";
+import { Skeleton } from "~/components/ui/skeleton";
+import { buttonVariants } from "~/components/ui/button";
+import { cn } from "~/lib/utils";
 
 interface WatchTrend {
 	id: string;
@@ -67,7 +71,7 @@ function DocTimeline({ promise }: { promise: WatchTrend["pointsPromise"] }) {
 		<>
 			<TrendChart points={points} stale={stale} width={880} height={80} />
 			{stale && (
-				<p className="mt-1 text-xs text-yellow-700">
+				<p className="mt-1 text-xs text-warning">
 					No timeline data (GDELT throttling or thin coverage).
 				</p>
 			)}
@@ -78,7 +82,7 @@ function DocTimeline({ promise }: { promise: WatchTrend["pointsPromise"] }) {
 function TimelineSkeleton() {
 	return (
 		<div className="animate-pulse" aria-hidden>
-			<div className="h-20 w-full rounded bg-gray-800" />
+			<Skeleton className="h-20 w-full rounded-lg" />
 		</div>
 	);
 }
@@ -89,31 +93,31 @@ export default function LensTrends() {
 	return (
 		<div className="mx-auto max-w-5xl p-6">
 			<div className="mb-6 flex items-baseline justify-between">
-				<h1 className="text-2xl font-bold text-blue-300">
+				<h1 className="font-heading text-2xl font-bold tracking-tight text-foreground">
 					Trends · {lens.name}
 				</h1>
-				<Link to={`/lens/${lens.slug}`} className="text-sm text-gray-400 hover:text-gray-300">
+				<Link to={`/lens/${lens.slug}`} className={cn(buttonVariants({ variant: "ghost", size: "touch", className: "text-muted-foreground" }))}>
 					← back to pulse
 				</Link>
 			</div>
-			<p className="mb-6 text-sm text-gray-500">
+			<p className="mb-6 max-w-3xl text-sm leading-relaxed text-muted-foreground">
 				Top: GDELT's own volume timeline (rolling 3-month window), streaming in per watch. Bottom:
 				Meridian's ingest history — matched articles per day from the ngram stream, accumulating
 				since launch and owned by us. Comparisons are within-window only until history deepens.
 			</p>
 
 			{trends.length === 0 ? (
-				<p className="text-gray-400">No watches to chart.</p>
+				<p className="text-muted-foreground">No watches to chart — add one from the lens page.</p>
 			) : (
 				<div className="space-y-4">
 					{trends.map((t) => (
-						<div key={t.id} className="rounded border border-gray-700 bg-gray-900 p-4">
+						<Card key={t.id} className="p-4">
 							<div className="mb-2 flex items-center justify-between">
-								<h2 className="font-medium text-gray-200">{t.label}</h2>
+								<h2 className="font-heading font-medium tracking-tight">{t.label}</h2>
 								{t.avgTone !== null && (
 									<span
-										className={`text-sm font-semibold ${
-											t.avgTone >= 0 ? "text-green-500" : "text-red-400"
+										className={`font-mono text-sm font-semibold tabular-nums ${
+											t.avgTone >= 0 ? "text-success" : "text-destructive"
 										}`}
 									>
 										avg tone {t.avgTone.toFixed(2)}
@@ -121,19 +125,19 @@ export default function LensTrends() {
 								)}
 							</div>
 
-							<p className="mb-1 text-xs text-gray-500">
+							<p className="mb-1 font-mono text-xs uppercase tracking-wide text-muted-foreground">
 								GDELT volume · rolling 3-month window
 							</p>
 							<React.Suspense fallback={<TimelineSkeleton />}>
 								<DocTimeline promise={t.pointsPromise} />
 							</React.Suspense>
 
-							<p className="mt-4 mb-1 text-xs text-gray-500">
+							<p className="mt-4 mb-1 font-mono text-xs uppercase tracking-wide text-muted-foreground">
 								Meridian ingest history · matched articles/day ·{" "}
-								<span className="text-blue-400">since {ngramHistoryStart(t.ngramSeries)}</span>
+								<span className="text-primary">since {ngramHistoryStart(t.ngramSeries)}</span>
 							</p>
 							<TrendChart points={t.ngramSeries} width={880} height={64} />
-						</div>
+						</Card>
 					))}
 				</div>
 			)}

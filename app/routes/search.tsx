@@ -13,6 +13,17 @@ import type { Article } from '../types/gdelt';
 import { GdeltApi } from "../services/gdeltApi";
 import { groupArticlesByTitle } from "~/lib/grouping";
 import { formatSeenUtc } from "~/lib/date";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { Skeleton } from "~/components/ui/skeleton";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from "~/components/ui/empty";
+import { SearchXIcon, TimerOffIcon } from "lucide-react";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
@@ -43,11 +54,11 @@ export function ErrorBoundary() {
       : "Unexpected error";
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      <div className="rounded border border-red-800 bg-gray-900 p-6 text-gray-300">
-        <h1 className="mb-2 text-xl font-semibold text-red-300">Search unavailable</h1>
+    <div className="mx-auto max-w-4xl p-4">
+      <div className="rounded-xl border border-destructive/40 bg-card p-6 text-card-foreground" role="alert">
+        <h1 className="mb-2 font-heading text-xl font-semibold text-destructive">Search unavailable</h1>
         <p className="text-sm">{message}</p>
-        <p className="mt-3 text-sm text-gray-500">
+        <p className="mt-3 text-sm text-muted-foreground">
           GDELT may be throttling or down — try again in a few minutes.
         </p>
       </div>
@@ -61,35 +72,36 @@ export default function Search() {
   const isLoading = navigation.state === "loading";
 
   return (
-    <div className="max-w-4xl mx-auto bg-gray-800 text-gray-200 p-4">
-      <h1 className="text-2xl font-bold mb-4">Search News Articles</h1>
-      
-      <Form className="mb-6">
-        <input
+    <div className="mx-auto max-w-4xl p-4">
+      <h1 className="font-heading text-2xl font-bold tracking-tight">Search the world's press</h1>
+      <p className="mt-1 font-mono text-xs uppercase tracking-[0.15em] text-muted-foreground">
+        One English query · 65+ languages
+      </p>
+
+      <Form className="mt-5 mb-6 flex flex-col gap-2 sm:flex-row">
+        <Input
           type="search"
           name="q"
           defaultValue={query}
-          placeholder='Search news (e.g. "climate change" sourcelang:english)'
-          className="w-full p-2 border border-gray-600 rounded bg-gray-700 
-                     text-gray-200 placeholder-gray-400"
+          placeholder='e.g. "climate change" sourcelang:english'
+          className="sm:flex-1"
           minLength={3}
           required
         />
-        <button 
-          type="submit"
-          disabled={isLoading}
-          className="mt-2 px-4 py-2 bg-blue-400 text-white 
-                     rounded hover:bg-blue-300 disabled:bg-blue-700"
-        >
-          {isLoading ? 'Searching...' : 'Search'}
-        </button>
+        <Button type="submit" pending={isLoading} pendingLabel="Searching…" size="touch">
+          Search
+        </Button>
       </Form>
 
       {resultsPromise ? (
         <React.Suspense fallback={<ResultsSkeleton />}>
           <SearchResults resultsPromise={resultsPromise} query={query} />
         </React.Suspense>
-      ) : null}
+      ) : (
+        <p className="mt-10 text-sm text-muted-foreground">
+          Start with a topic — results stream in as GDELT returns them.
+        </p>
+      )}
     </div>
   );
 }
@@ -98,12 +110,12 @@ function ResultsSkeleton() {
   return (
     <div className="space-y-4" role="status" aria-label="Searching">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="animate-pulse rounded border border-gray-700 bg-gray-900 p-4 flex gap-4">
-          <div className="h-32 w-32 flex-shrink-0 rounded bg-gray-800" />
+        <div key={i} className="flex gap-4 rounded-xl border border-border bg-card p-4">
+          <Skeleton className="h-32 w-32 flex-shrink-0 rounded-lg" />
           <div className="flex-1 space-y-2 py-1">
-            <div className="h-4 w-3/4 rounded bg-gray-800" />
-            <div className="h-3 w-1/2 rounded bg-gray-800" />
-            <div className="h-3 w-2/3 rounded bg-gray-800" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+            <Skeleton className="h-3 w-2/3" />
           </div>
         </div>
       ))}
@@ -126,7 +138,7 @@ function SearchResults({
   return (
     <>
       {results.totalResults !== undefined && (
-        <p className="text-sm text-gray-400 mb-4">
+        <p className="font-mono text-sm text-muted-foreground mb-4">
           Found {results.totalResults} results for "{query}"
         </p>
       )}
@@ -141,10 +153,10 @@ function SearchResults({
           return (
             <article
               key={title}
-              className="p-4 border border-gray-700 rounded bg-gray-900 flex items-start gap-4"
+              className="flex items-start gap-4 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
             >
               {hasImage ? (
-                <div className="w-32 h-32 flex-shrink-0">
+                <div className="w-32 h-32 flex-shrink-0 overflow-hidden rounded-lg">
                   <img
                     src={firstArticle.socialimage}
                     alt={firstArticle.title}
@@ -152,56 +164,57 @@ function SearchResults({
                   />
                 </div>
               ) : (
-                <div className="w-32 h-32 flex-shrink-0 bg-gray-700 flex items-center justify-center">
-                  <span className="text-gray-400 text-sm">No Image</span>
+                <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
+                  <span className="text-xs text-muted-foreground">No image</span>
                 </div>
               )}
 
               <div className="flex-1">
-                <h2 className="text-xl font-semibold mb-2">
+                <h2 className="font-heading text-lg font-semibold leading-snug">
                   <a
                     href={firstArticle.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-300 hover:underline"
+                    className="text-foreground underline-offset-4 hover:text-primary hover:underline"
                   >
                     {title}
                   </a>
                 </h2>
 
-                <div className="text-sm text-gray-400 mb-2 space-x-2">
-                  <span>Source: {firstArticle.domain || "N/A"}</span>
+                <div className="mt-1.5 mb-2 space-x-2 font-mono text-xs text-muted-foreground">
+                  <span>{firstArticle.domain || "N/A"}</span>
                   {firstArticle.sourcecountry && (
-                    <span>Country: {firstArticle.sourcecountry}</span>
+                    <span>· {firstArticle.sourcecountry}</span>
                   )}
                   {firstArticle.seendate && (
-                    <span>
-                      Date: {formatSeenUtc(firstArticle.seendate) ?? ""}
-                    </span>
+                    <span>· {formatSeenUtc(firstArticle.seendate) ?? ""}</span>
                   )}
                   {typeof firstArticle.tone === 'number' && (
-                    <span>Tone: {firstArticle.tone.toFixed(2)}</span>
+                    <span className={firstArticle.tone >= 0 ? "text-success" : "text-destructive"}>
+                      · {firstArticle.tone > 0 ? "+" : ""}
+                      {firstArticle.tone.toFixed(1)} tone
+                    </span>
                   )}
                 </div>
 
-                <ul className="text-sm text-gray-400 pl-4 list-disc">
-                  {displayedArticles.map((art) => (
-                    <li key={art.url} className="mb-2">
+                <ul className="text-sm">
+                  {displayedArticles.slice(1).map((art) => (
+                    <li key={art.url} className="mb-1">
                       <a
                         href={art.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-300 hover:underline"
+                        className="text-muted-foreground underline-offset-4 hover:text-primary hover:underline"
                         title={`Open article from ${art.domain ?? "unknown source"}`}
                       >
-                        Source: {art.domain || "View source"}
+                        {art.domain || "View source"}
                       </a>
                     </li>
                   ))}
                 </ul>
                 {totalCount > 5 && (
-                  <p className="text-sm text-gray-500 mt-1">
-                    +{totalCount - 5} more link(s)
+                  <p className="font-mono text-xs text-muted-foreground/70 mt-1">
+                    +{totalCount - 5} more sources
                   </p>
                 )}
               </div>
@@ -209,27 +222,23 @@ function SearchResults({
           );
         })}
         {results.articles.length === 0 && (
-          <div className="rounded border border-gray-700 bg-gray-900 p-4">
-            {results.throttled ? (
-              <>
-                <p className="text-yellow-300">GDELT is throttling requests right now.</p>
-                <p className="mt-1 text-sm text-gray-500">
-                  Search again in a few minutes — the limit resets on its own.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-gray-400">
-                  No articles matched “{query}”
-                  {results.totalResults === 0 ? " in GDELT's index" : ""}.
-                </p>
-                <p className="mt-1 text-sm text-gray-500">
-                  Try fewer words, drop operators, or widen the query — GDELT matches
-                  machine-translated text across 65 languages.
-                </p>
-              </>
-            )}
-          </div>
+          <Empty className="rounded-xl border border-dashed">
+            <EmptyHeader>
+              <EmptyMedia>
+                {results.throttled ? <TimerOffIcon aria-hidden /> : <SearchXIcon aria-hidden />}
+              </EmptyMedia>
+              <EmptyTitle>
+                {results.throttled
+                  ? "GDELT is throttling right now"
+                  : `No articles matched “${query}”`}
+              </EmptyTitle>
+              <EmptyDescription>
+                {results.throttled
+                  ? "The limit resets on its own — search again in a few minutes."
+                  : "Try fewer words, drop operators, or widen the query — GDELT matches machine-translated text across 65 languages."}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
       </div>
     </>

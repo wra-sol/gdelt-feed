@@ -10,5 +10,15 @@
 	"hooksDir": "app/hooks",
 	"stylesDir": "app/styles",
 	"themeFile": "ui-theme.css",
-	"components": ["button", "alert-dialog", "spinner"]
+	"components": [
+		"button",
+		"badge",
+		"card",
+		"input",
+		"skeleton",
+		"spinner",
+		"empty",
+		"alert-dialog",
+		"separator"
+	]
 }

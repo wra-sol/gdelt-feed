@@ -5,15 +5,40 @@
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-heading: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, monospace;
 }
 
 html,
 body {
-  @apply bg-white dark:bg-gray-950;
+  @apply bg-background text-foreground;
 
   @media (prefers-color-scheme: dark) {
     color-scheme: dark;
   }
+}
+
+/* Meridian backdrop: a brass horizon glow above faint longitude rules.
+   Static, ~3% opacity — deference over decoration (HIG). */
+.dark body {
+  background-image:
+    radial-gradient(1100px 420px at 50% -120px, oklch(0.8 0.13 80 / 7%), transparent 65%),
+    repeating-linear-gradient(
+      to right,
+      oklch(1 0 0 / 2.5%) 0 1px,
+      transparent 1px 140px
+    );
+}
+
+::selection {
+  background-color: oklch(0.8 0.13 80 / 30%);
+}
+
+/* Accessibility floor: keyboard focus is always visible, even on
+   compositions that fall outside the kit's built-in rings. */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* Respect users who prefer reduced motion: kill decorative animation,
