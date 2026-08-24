@@ -101,7 +101,7 @@ npm run typecheck && npm run build  # both green at baseline
 
 ## Decided deployment (replaces all legacy paths)
 
-**Cloudflare Workers SSR** via RR7 Cloudflare adapter (`@react-router/cloudflare` + `@cloudflare/vite-plugin`, wrangler 4.x new-style config). `prerender: false`. Storage = **D1**: `lenses`, `watches`, `articles_cache` (shared cross-visitor TTL cache). Delete `wrangler.toml`, `Dockerfile`, `server.js`. Writes gated by CF Access JWT; reads + RSS public. Node-crypto MD5 → Web Crypto (or `nodejs_compat`). Subrequest budget: cap watches/lens ≈20 (free tier = 50 subrequests/request).
+**Cloudflare Workers SSR** via RR7 Cloudflare adapter (`@react-router/cloudflare` + `@cloudflare/vite-plugin`, wrangler 4.x new-style config). `prerender: false`. Storage = **D1**: `lenses`, `watches`, `articles_cache` (shared cross-visitor TTL cache). Delete `wrangler.toml`, `Dockerfile`, `server.js`. Writes are gated by CF Access JWT; reads + RSS public. **RSS_TOKEN secret is set on the worker** (value in operator's local notes; regenerate via `npx wrangler secret put RSS_TOKEN`). `ACCESS_GATE_ENABLED` intentionally left empty until the Zero-Trust Access application covering mutation paths exists at the edge — flipping it before that locks ALL writes out. Node-crypto MD5 → Web Crypto (or `nodejs_compat`). Subrequest budget: cap watches/lens ≈20 (free tier = 50 subrequests/request).
 
 Rejected alternatives (for the record): static Pages (breaks loaders/actions/search), node SSR react-router-serve (no server bundle even emitted today; hosting cost). Under Workers, GDELT sees CF egress either way — mitigated by shared D1 cache.
 
@@ -134,7 +134,7 @@ New gotcha: under workers-types, `Response.json()` returns `unknown` (not any) �
 - E2.6 Friendly ErrorBoundary on /search and /feed ✅
 
 **E3 — Lens shell + Watch Engine** ✅ DONE locally 2026-08-23
-- E3.0 Spike: DOC `theme:` verification blocked by throttle cooldown; GEO still 404ing upstream — both deferred to first deploy window ⏳
+- E3.0 Spike ✅ DONE 2026-08-24 via prod egress probe (temp route, since removed): **DOC does NOT support `theme:`** ("too short/long/common" rejection class — same as locationcc; theme is GEO/GKG-family only). GEO endpoint 404s from CF egress too → currently down upstream globally; ADR degradation design validated. **Throttle hits even CF egress IPs intermittently (429 on ~half of 8s-spaced probes)** → shared D1 cache is load-bearing, not optional. Watch engine stays keywords+toponyms until GKG pipeline.
 - E3.1 docs/adr-001-lens-model.md (Lens=place-of-subject, Watch=structured data) ✅
 - E3.2 migration 0002: lenses/watches + auto-adoption of legacy columns into 'demo' lens ✅
 - E3.3 watchEngine.compileWatchQuery v1 (DOC mentions path; GEO behind future flag per ADR) ✅
