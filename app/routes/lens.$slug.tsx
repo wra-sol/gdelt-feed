@@ -43,7 +43,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
-import { RadarIcon } from "lucide-react";
+import { RadarIcon, RssIcon } from "lucide-react";
 
 /**
  * Per-watch view. docArticles is the DOC-coverage primary list — the ONLY
@@ -400,6 +400,15 @@ export default function LensPage() {
 
 	return (
 		<div className="mx-auto p-4">
+			{/* React 19 hoists head links rendered anywhere. Plain URL: when the
+			    Access gate is on, feeds are shared as tokened URLs instead —
+			    never embed RSS_TOKEN in page HTML. */}
+			<link
+				rel="alternate"
+				type="application/rss+xml"
+				title={`${lens.name} — Meridian`}
+				href={`/rss/lens/${lens.slug}`}
+			/>
 			<div className="mb-4 flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
 				<div>
 					<h1 className="flex items-center gap-2 font-heading text-xl font-bold tracking-tight text-foreground">
@@ -447,6 +456,14 @@ export default function LensPage() {
 				>
 					+ Add watch
 				</Button>
+				<a
+					href={`/rss/lens/${lens.slug}`}
+					title={`${lens.name} RSS feed`}
+					className={cn(buttonVariants({ variant: "outline", size: "touch", className: "px-3" }))}
+				>
+					<RssIcon className="size-4" aria-hidden />
+					<span className="sr-only">RSS feed</span>
+				</a>
 				<Link prefetch="intent" viewTransition to={`/lens/${lens.slug}/trends`} className={cn(buttonVariants({ variant: "outline", size: "touch" }))}>
 					Trends →
 				</Link>

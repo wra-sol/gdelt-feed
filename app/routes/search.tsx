@@ -66,6 +66,34 @@ export function ErrorBoundary() {
   );
 }
 
+/**
+ * Hotlinked social images are mixed-quality and often dead (HANDOFF quirk).
+ * Lazy-load; on failure degrade to the neutral placeholder instead of a
+ * broken-image glyph.
+ */
+function ResultImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = React.useState(false);
+  if (failed) {
+    return (
+      <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
+        <span className="text-xs text-muted-foreground">No image</span>
+      </div>
+    );
+  }
+  return (
+    <div className="h-32 w-32 flex-shrink-0 overflow-hidden rounded-lg bg-muted">
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        className="h-full w-full object-cover"
+      />
+    </div>
+  );
+}
+
 export default function Search() {
   const { query, resultsPromise } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
@@ -156,13 +184,7 @@ function SearchResults({
               className="flex items-start gap-4 rounded-xl border border-border bg-card p-4 transition-colors hover:border-primary/40"
             >
               {hasImage ? (
-                <div className="w-32 h-32 flex-shrink-0 overflow-hidden rounded-lg">
-                  <img
-                    src={firstArticle.socialimage}
-                    alt={firstArticle.title}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
+                <ResultImage src={firstArticle.socialimage!} alt={firstArticle.title} />
               ) : (
                 <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center rounded-lg bg-muted">
                   <span className="text-xs text-muted-foreground">No image</span>
