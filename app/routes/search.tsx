@@ -17,18 +17,28 @@ import { formatSeenLocal } from "~/lib/date";
 interface LoaderData {
   articles: Article[];
   query: string;
-  totalResults?: number;  
-  timespan?: string;
+  totalResults?: number;
+  throttled?: boolean;
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const query = url.searchParams.get("q");
   if (!query) {
-    return { articles: [], query: "" };
+    return { articles: [] as Article[], query: "", totalResults: undefined, throttled: false };
   }
-  const results = await GdeltApi.searchArticles({ query });
-  return { articles: results.articles, query };
+  try {
+    const results = await GdeltApi.searchArticles({ query });
+    return {
+      articles: results.articles,
+      query,
+      totalResults: results.totalResults,
+      throttled: false,
+    };
+  } catch (error) {
+    console.error("search fetch failed:", error);
+    return { articles: [] as Article[], query, totalResults: undefined, throttled: true };
+  }
 }
 
 export function ErrorBoundary() {
@@ -53,7 +63,7 @@ export function ErrorBoundary() {
 }
 
 export default function Search() {
-  const { articles, query, totalResults } = useLoaderData() as LoaderData;
+  const { articles, query, totalResults, throttled } = useLoaderData() as LoaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
   const [searchParams] = useSearchParams();
@@ -151,14 +161,14 @@ export default function Search() {
                 <ul className="text-sm text-gray-400 pl-4 list-disc">
                   {displayedArticles.map((art) => (
                     <li key={art.url} className="mb-2">
-                      <span className="mr-1">Source: {art.domain || "N/A"}</span>
                       <a
                         href={art.url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-300 hover:underline"
+                        title={`Open article from ${art.domain ?? "unknown source"}`}
                       >
-                        (Link)
+                        Source: {art.domain || "View source"}
                       </a>
                     </li>
                   ))}
@@ -173,7 +183,28 @@ export default function Search() {
           );
         })}
         {articles.length === 0 && (
-          <p className="text-gray-400">No articles found</p>
+          <div className="rounded border border-gray-700 bg-gray-900 p-4">
+            {throttled ? (
+              <>
+                <p className="text-yellow-300">
+                  GDELT is throttling requests right now.
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  Search again in a few minutes — the limit resets on its own.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-400">
+                  No articles matched “{query}”{totalResults === 0 ? " in GDELT's index" : ""}.
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  Try fewer words, drop operators, or widen the query — GDELT matches
+                  machine-translated text across 65 languages.
+                </p>
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>

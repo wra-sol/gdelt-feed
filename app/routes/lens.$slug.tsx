@@ -4,8 +4,10 @@ import {
 	Link,
 	useLoaderData,
 	useNavigation,
+	useSubmit,
 	type LoaderFunctionArgs,
 } from "react-router";
+import { ConfirmDialog } from "~/components/ConfirmDialog";
 import type { Article } from "~/types/gdelt";
 import { getCoverage } from "~/services/coverage";
 import { getLensBySlug, getWatchesForLens, addWatch, deleteWatch } from "~/services/lensDb";
@@ -159,6 +161,7 @@ function WatchCard({
 	watch,
 	ngramUrls,
 	canEdit,
+	onAskDelete,
 }: {
 	watch: {
 		id: string;
@@ -173,6 +176,7 @@ function WatchCard({
 	};
 	ngramUrls: string[];
 	canEdit: boolean;
+	onAskDelete: (w: { id: string; label: string }) => void;
 }) {
 	const ngramSet = new Set(ngramUrls);
 	return (
@@ -187,15 +191,13 @@ function WatchCard({
 							</span>
 						)}
 						{canEdit && (
-							<Form method="post" onSubmit={(e) => {
-								if (!confirm("Delete this watch?")) e.preventDefault();
-							}}>
-								<input type="hidden" name="intent" value="delete-watch" />
-								<input type="hidden" name="watchId" value={watch.id} />
-								<button type="submit" className="text-red-400 hover:text-red-300">
-									Delete
-								</button>
-							</Form>
+							<button
+								type="button"
+								onClick={() => onAskDelete({ id: watch.id, label: watch.label })}
+								className="text-red-400 hover:text-red-300"
+							>
+								Delete
+							</button>
 						)}
 					</div>
 				</div>
@@ -257,7 +259,9 @@ function WatchCard({
 export default function LensPage() {
 	const { lens, watches, pulse, ngramUrls } = useLoaderData<typeof loader>();
 	const navigation = useNavigation();
+	const submit = useSubmit();
 	const [showAdd, setShowAdd] = React.useState(false);
+	const [pendingDelete, setPendingDelete] = React.useState<{ id: string; label: string } | null>(null);
 
 	// Mark this visit as "seen" after render so the next load can diff.
 	React.useEffect(() => {
@@ -350,10 +354,27 @@ export default function LensPage() {
 			) : (
 				<div className="flex space-x-4 overflow-x-auto pb-4">
 					{watches.map((w) => (
-						<WatchCard key={w.id} watch={w} ngramUrls={ngramUrls} canEdit />
+						<WatchCard key={w.id} watch={w} ngramUrls={ngramUrls} canEdit onAskDelete={setPendingDelete} />
 					))}
 				</div>
 			)}
+
+			<ConfirmDialog
+				open={pendingDelete !== null}
+				title="Delete watch?"
+				description={pendingDelete ? `This removes “${pendingDelete.label}” and its saved coverage from this lens.` : undefined}
+				confirmLabel="Delete watch"
+				cancelLabel="Keep it"
+				onConfirm={() => {
+					if (!pendingDelete) return;
+					const formData = new FormData();
+					formData.append("intent", "delete-watch");
+					formData.append("watchId", pendingDelete.id);
+					submit(formData, { method: "post" });
+					setPendingDelete(null);
+				}}
+				onCancel={() => setPendingDelete(null)}
+			/>
 		</div>
 	);
 }
