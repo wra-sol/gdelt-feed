@@ -1,0 +1,14 @@
+{
+	"version": "0.1.0",
+	"source": {
+		"package": "@chester-hill-solutions/ui-kit",
+		"version": "0.3.1",
+		"note": "Vendored from chester-hill-solutions/packages/ui-kit templates because this repo has no GitHub Packages auth. Re-run `ui-kit add` (with .npmrc auth) to sync; registry is the source of truth."
+	},
+	"componentsDir": "app/components/ui",
+	"libDir": "app/lib",
+	"hooksDir": "app/hooks",
+	"stylesDir": "app/styles",
+	"themeFile": "ui-theme.css",
+	"components": ["button", "alert-dialog", "spinner"]
+}

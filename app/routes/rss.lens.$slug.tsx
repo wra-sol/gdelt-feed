@@ -2,6 +2,8 @@ import type { LoaderFunctionArgs } from "react-router";
 import { getLensBySlug, getWatchesForLens } from "~/services/lensDb";
 import { getCachedArticles } from "~/services/articleCache";
 import { compileWatchQuery } from "~/services/watchEngine";
+import { seenToRfc822 } from "~/lib/date";
+import { tokensMatch } from "~/lib/access";
 
 function esc(s: string): string {
 	return s
@@ -9,15 +11,6 @@ function esc(s: string): string {
 		.replace(/</g, "&lt;")
 		.replace(/>/g, "&gt;")
 		.replace(/"/g, "&quot;");
-}
-
-function toRfc822(seen?: string): string | undefined {
-	if (!seen) return;
-	const m = seen.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
-	if (!m) return;
-	return new Date(
-		Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]),
-	).toUTCString();
 }
 
 /**
@@ -33,7 +26,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 	// the unguessable per-deployment token so readers can poll unauthenticated.
 	if ((env.ACCESS_GATE_ENABLED ?? "").toLowerCase() === "true") {
 		const token = url.searchParams.get("token");
-		if (!env.RSS_TOKEN || token !== env.RSS_TOKEN) {
+		if (!env.RSS_TOKEN || !token || !tokensMatch(token, env.RSS_TOKEN)) {
 			return new Response("Forbidden", { status: 403 });
 		}
 	}
@@ -55,7 +48,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 				title: article.title,
 				link: article.url,
 				source: `${article.domain ?? "unknown"} · ${compileWatchQuery(watch)}`,
-				date: toRfc822(article.seendate),
+				date: seenToRfc822(article.seendate),
 				watch: watch.label,
 			});
 		}

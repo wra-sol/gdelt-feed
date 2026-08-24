@@ -7,19 +7,27 @@ import {
 	type LoaderFunctionArgs,
 } from "react-router";
 import type { Article } from "~/types/gdelt";
-import { GdeltApi, GdeltRateLimitError } from "~/services/gdeltApi";
-import { getCachedArticles, cacheArticles } from "~/services/articleCache";
+import { getCoverage } from "~/services/coverage";
 import { getLensBySlug, getWatchesForLens, addWatch, deleteWatch } from "~/services/lensDb";
 import { compileWatchQuery, type WatchDef } from "~/services/watchEngine";
 import { getRecentNgramHits } from "~/services/ngrams";
-import { groupArticlesByTitle, parseSeenDate } from "~/lib/grouping";
+import { groupArticlesByTitle, type ArticleGroup } from "~/lib/grouping";
+import { formatSeenLocal, groupKey, isoToSeenDate } from "~/lib/date";
+import { computePulse } from "~/lib/pulse";
 import { countryByFips, flagEmoji } from "~/data/countries";
 import { isWriteAllowed, writeDenied } from "~/lib/access";
 
+/**
+ * Per-watch view. docArticles is the DOC-coverage primary list — the ONLY
+ * input to totals and pulse math. displayGroups is the rendering list:
+ * doc groups with ngram-derived articles merged in (badge-tagged via
+ * ngramUrls), so ngram hits never inflate counts.
+ */
 interface WatchView extends WatchDef {
-	query: string;
-	articles: Article[];
-	fetchedAt: string | null;
+	docArticles: Article[];
+	displayGroups: ArticleGroup[];
+	total: number;
+	stale: boolean;
 }
 
 export async function loader({ params, request, context }: LoaderFunctionArgs) {
@@ -29,54 +37,42 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 
 	const watches = await getWatchesForLens(db, lens.id);
 
+	// C1: the Coverage seam owns cache/fetch/failover per watch.
 	const views: WatchView[] = await Promise.all(
 		watches.map(async (watch) => {
-			const query = compileWatchQuery(watch);
-			let articles: Article[] = [];
-			let fetchedAt: string | null = null;
-
-			const cached = await getCachedArticles(db, watch.id);
-			if (cached?.isFresh) {
-				articles = cached.articles;
-				fetchedAt = new Date().toISOString();
-			} else {
-				try {
-					const result = await GdeltApi.searchArticles({
-						query,
-						timespan: watch.timespan,
-						sort: watch.sort,
-						maxrecords: Math.min(watch.maxrecords ?? 50, 250),
-					});
-					articles = result.articles;
-					await cacheArticles(db, watch.id, articles);
-					fetchedAt = new Date().toISOString();
-				} catch (error) {
-					console.error(`Watch ${watch.label} fetch failed:`, error);
-					articles = cached?.articles ?? [];
-					fetchedAt = null; // stale
-				}
-			}
-
-			return { ...watch, query, articles, fetchedAt };
+			const coverage = await getCoverage(
+				db,
+				{
+					id: watch.id,
+					query: compileWatchQuery(watch),
+					timespan: watch.timespan,
+					sort: watch.sort,
+					maxrecords: Math.min(watch.maxrecords ?? 50, 250),
+				},
+				{ forceRefresh: false },
+			);
+			return {
+				...watch,
+				docArticles: coverage.articles,
+				displayGroups: groupArticlesByTitle([...coverage.articles]),
+				total: coverage.articles.length,
+				stale: coverage.stale,
+			};
 		}),
 	);
 
-	// Pulse: what changed since the visitor last looked at this lens
+	// C2: pulse math runs on DOC coverage only, never the blended display list.
 	const cookieName = `m_seen_${lens.slug}`;
 	const cookieMatch = request.headers.get("cookie")?.match(new RegExp(`${cookieName}=([^;]+)`));
-	const lastSeen = cookieMatch ? parseSeenDate(decodeURIComponent(cookieMatch[1])) : null;
+	const lastSeenIso = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
+	const pulse = computePulse(
+		views.map((v) => ({ id: v.id, articles: v.docArticles })),
+		lastSeenIso,
+	);
 
-	let changedCount = 0;
-	for (const view of views) {
-		if (!lastSeen) continue;
-		const fresh = view.articles.filter((a) => {
-			const d = parseSeenDate(a.seendate);
-			return d && d > lastSeen;
-		});
-		changedCount += fresh.length;
-	}
-
-	// Blend in ngram-derived coverage (throttle-proof secondary source)
+	// Blend ngram-derived coverage into DISPLAY groups only (throttle-proof
+	// secondary source): deduped against doc urls, seendate rebuilt via
+	// isoToSeenDate, appended into a matching title group or as its own entry.
 	const ngramHits = await getRecentNgramHits(db, views.map((v) => v.id));
 	const hitsByWatch = new Map<string, typeof ngramHits>();
 	for (const hit of ngramHits) {
@@ -85,16 +81,20 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 	}
 	const ngramUrls = new Set<string>();
 	for (const view of views) {
-		const existing = new Set(view.articles.map((a) => a.url));
+		const docUrls = new Set(view.docArticles.map((a) => a.url));
 		for (const hit of hitsByWatch.get(view.id) ?? []) {
-			if (existing.has(hit.url)) continue;
+			if (docUrls.has(hit.url)) continue;
 			ngramUrls.add(hit.url);
-			view.articles.push({
+			const article: Article = {
 				url: hit.url,
 				title: hit.title ?? hit.url,
 				socialimage: hit.imageUrl,
-				seendate: hit.publishedAt.replace(/[-:]/g, "").slice(0, 15) + "Z",
-			});
+				seendate: isoToSeenDate(hit.publishedAt),
+			};
+			const key = groupKey(article);
+			const match = view.displayGroups.find((g) => groupKey(g) === key);
+			if (match) match.articles.push(article);
+			else view.displayGroups.push({ title: article.title, articles: [article] });
 		}
 	}
 
@@ -112,21 +112,16 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 			terms: v.terms,
 			geoTerms: v.geoTerms ?? [],
 			timespan: v.timespan,
-			articles: groupArticlesByTitle(v.articles).slice(0, 12),
-			total: v.articles.length,
-			stale: v.fetchedAt === null,
-			newCount: lastSeen
-				? v.articles.filter((a) => {
-						const d = parseSeenDate(a.seendate);
-						return d && d > lastSeen;
-					}).length
-				: 0,
+			articles: v.displayGroups.slice(0, 12),
+			total: v.total,
+			stale: v.stale,
+			newCount: pulse.perWatch[v.id]?.newCount ?? 0,
 		})),
 		pulse: {
 			watchCount: views.length,
-			totalArticles: views.reduce((n, v) => n + v.articles.length, 0),
-			changedCount,
-			firstVisit: !lastSeen,
+			totalArticles: views.reduce((n, v) => n + v.total, 0),
+			changedCount: pulse.changedCount,
+			firstVisit: pulse.firstVisit,
 			ngramCount: ngramUrls.size,
 		},
 		ngramUrls: [...ngramUrls],
@@ -224,7 +219,7 @@ function WatchCard({
 				) : (
 					watch.articles.map(({ title, articles }) => {
 						const first = articles[0];
-						const seen = parseSeenDate(first.seendate);
+						const seenLabel = formatSeenLocal(first.seendate);
 						return (
 							<div key={title} className="border-t border-gray-800 pt-3 first:border-0 first:pt-0">
 								<a
@@ -242,7 +237,7 @@ function WatchCard({
 										</span>
 									)}
 									<span>{first.domain ?? "N/A"}</span>
-									{seen && <span>{seen.toLocaleString()}</span>}
+									{seenLabel && <span>{seenLabel}</span>}
 									{typeof first.tone === "number" && (
 										<span className={first.tone >= 0 ? "text-green-600" : "text-red-500"}>
 											{first.tone.toFixed(1)}

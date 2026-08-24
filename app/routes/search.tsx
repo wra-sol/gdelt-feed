@@ -11,6 +11,8 @@ import {
 import * as React from "react";
 import type { Article } from '../types/gdelt';
 import { GdeltApi } from "../services/gdeltApi";
+import { groupArticlesByTitle } from "~/lib/grouping";
+import { formatSeenLocal } from "~/lib/date";
 
 interface LoaderData {
   articles: Article[];
@@ -58,28 +60,10 @@ export default function Search() {
 
   const isLoading = navigation.state === "loading";
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const isFirstSearch = query === null;
-    /* submit(e.currentTarget.form, {
-      replace: !isFirstSearch,
-    }); */
-  };
-
-  const groupedArticles = React.useMemo(() => {
-    const map = new Map<string, Article[]>();
-    for (const article of articles) {
-      const normalizedTitle = article.title.trim().toLowerCase();
-      if (!map.has(normalizedTitle)) {
-        map.set(normalizedTitle, []);
-      }
-      map.get(normalizedTitle)!.push(article);
-    }
-    return Array.from(map.entries()).map(([titleKey, group]) => ({
-      title: group[0].title,
-      articles: group
-    }));
-  }, [articles]);
-  console.log(articles[0]);
+  const groupedArticles = React.useMemo(
+    () => groupArticlesByTitle(articles),
+    [articles],
+  );
   return (
     <div className="max-w-4xl mx-auto bg-gray-800 text-gray-200 p-4">
       <h1 className="text-2xl font-bold mb-4">Search News Articles</h1>
@@ -89,7 +73,6 @@ export default function Search() {
           type="search"
           name="q"
           defaultValue={searchParams.get("q") ?? ""}
-          onChange={handleSearchChange}
           placeholder='Search news (e.g. "climate change" sourcelang:english)'
           className="w-full p-2 border border-gray-600 rounded bg-gray-700 
                      text-gray-200 placeholder-gray-400"
@@ -157,10 +140,7 @@ export default function Search() {
                   )}
                   {firstArticle.seendate && (
                     <span>
-                      Date: {new Date(firstArticle.seendate.replace(
-                        /(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/,
-                        '$1-$2-$3T$4:$5:$6Z'
-                      )).toLocaleString()}
+                      Date: {formatSeenLocal(firstArticle.seendate) ?? ""}
                     </span>
                   )}
                   {typeof firstArticle.tone === 'number' && (

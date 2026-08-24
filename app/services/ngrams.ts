@@ -13,6 +13,7 @@
  */
 
 import type { WatchDef } from "~/services/watchEngine";
+import { compileNeedles, scanQuadgrams } from "~/services/ngramScan";
 
 const NGRAMS_BASE =
 	"https://storage.googleapis.com/data.gdeltproject.org/gdeltv5/weblegacy/ngrams";
@@ -37,12 +38,6 @@ interface TocEntry {
 	url?: string;
 }
 
-/** Terms must match whole words inside the quadgram text. */
-function paddedContains(haystack: string, needle: string): boolean {
-	return haystack.includes(` ${needle} `) || haystack === needle ||
-		haystack.startsWith(`${needle} `) || haystack.endsWith(` ${needle}`);
-}
-
 /** Newest available file has timestamp ≈ now−5min at minute ≡ 1 (mod 15). */
 async function locateLatestMinute(): Promise<string | null> {
 	for (let off = 5; off <= 45; off++) {
@@ -53,16 +48,6 @@ async function locateLatestMinute(): Promise<string | null> {
 		if (res.ok) return ts;
 	}
 	return null;
-}
-
-function compileNeedles(watches: { id: string; terms: string[] }[]): {
-	id: string;
-	needles: string[];
-}[] {
-	return watches.map((w) => ({
-		id: w.id,
-		needles: w.terms.map((t) => t.toLowerCase()),
-	}));
 }
 
 export async function ingestLatestMinute(
@@ -80,9 +65,22 @@ export async function ingestLatestMinute(
 	const compiled = compileNeedles(watches);
 	const docTerms = new Map<string, Set<string>>(); // docId -> matched needles
 
+	function mergeInto(src: Map<string, Set<string>>) {
+		for (const [docId, terms] of src) {
+			const cur = docTerms.get(docId);
+			if (cur) {
+				for (const t of terms) cur.add(t);
+			} else {
+				docTerms.set(docId, terms);
+			}
+		}
+	}
+
 	const ngramsRes = await fetch(`${NGRAMS_BASE}/${minute}.ngrams.txt.gz`);
 	if (!ngramsRes.ok || !ngramsRes.body) throw new Error(`ngrams fetch ${ngramsRes.status}`);
 
+	// Stream-decompress and scan complete lines per chunk; carry the trailing
+	// partial line in the buffer so no quadgram is ever split across batches.
 	const stream = ngramsRes.body.pipeThrough(new DecompressionStream("gzip"));
 	const reader = stream.getReader();
 	const decoder = new TextDecoder();
@@ -94,29 +92,14 @@ export async function ingestLatestMinute(
 		buffer += decoder.decode(value, { stream: true });
 
 		let nl: number;
+		const completeLines: string[] = [];
 		while ((nl = buffer.indexOf("\n")) !== -1) {
-			const line = buffer.slice(0, nl);
+			completeLines.push(buffer.slice(0, nl));
 			buffer = buffer.slice(nl + 1);
-			processLine(line);
 		}
+		if (completeLines.length > 0) mergeInto(scanQuadgrams(completeLines, compiled));
 	}
-	if (buffer) processLine(buffer);
-
-	function processLine(line: string) {
-		const tab = line.indexOf("\t");
-		if (tab <= 0) return;
-		const docId = line.slice(0, tab);
-		const qg = line.slice(tab + 1).toLowerCase();
-		for (const c of compiled) {
-			for (const needle of c.needles) {
-				if (paddedContains(qg, needle)) {
-					if (!docTerms.has(docId)) docTerms.set(docId, new Set());
-					docTerms.get(docId)!.add(needle);
-					break;
-				}
-			}
-		}
-	}
+	if (buffer) mergeInto(scanQuadgrams([buffer], compiled));
 
 	if (docTerms.size === 0) return { minute, hits: 0, docs: 0 };
 
@@ -149,6 +132,14 @@ export async function ingestLatestMinute(
 		 ON CONFLICT (watch_id, url) DO NOTHING`,
 	);
 
+	const BATCH_SIZE = 50;
+	let pending: D1PreparedStatement[] = [];
+	async function flush() {
+		if (pending.length === 0) return;
+		await db.batch(pending);
+		pending = [];
+	}
+
 	for (const [docId, terms] of docTerms) {
 		const doc = tocById.get(docId);
 		if (!doc?.url) continue;
@@ -157,8 +148,8 @@ export async function ingestLatestMinute(
 			const matched = [...terms].filter((t) => c.needles.includes(t));
 			if (matched.length === 0) continue;
 			hits++;
-			await stmt
-				.bind(
+			pending.push(
+				stmt.bind(
 					c.id,
 					doc.url,
 					doc.title ?? null,
@@ -167,10 +158,12 @@ export async function ingestLatestMinute(
 					publishedAt,
 					JSON.stringify(matched),
 					minute,
-				)
-				.run();
+				),
+			);
+			if (pending.length >= BATCH_SIZE) await flush();
 		}
 	}
+	await flush();
 
 	return { minute, hits, docs };
 }

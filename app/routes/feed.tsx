@@ -1,25 +1,33 @@
 import { useLoaderData, useNavigation, useSubmit, type LoaderFunctionArgs } from "react-router";
-import { GdeltApi } from "../services/gdeltApi";
-import type { GdeltFormat, GdeltMode, SortOrder } from "../services/gdeltApi";
+import type { GdeltMode, SortOrder } from "~/services/gdeltApi";
 import type { Article } from "../types/gdelt";
 import * as React from "react";
-import { getColumns, addColumn, updateColumn, deleteColumn } from "../services/columnsDb";
+import {
+    getColumns,
+    addColumn,
+    updateColumn,
+    deleteColumn,
+    type ColumnDefinition,
+} from "../services/columnsDb";
 import { Form, useRouteError, isRouteErrorResponse } from "react-router";
-import { cacheArticles, getCachedArticles } from "../services/articleCache";
+import { getCoverage } from "~/services/coverage";
 import { isWriteAllowed, writeDenied } from "~/lib/access";
+import { formatSeenLocal } from "~/lib/date";
+import { groupArticlesByTitle } from "~/lib/grouping";
+import { COUNTRIES, flagEmoji } from "~/data/countries";
 
-interface ColumnDefinition {
-    query: string;          // e.g. "climate change sourcelang:english"
-    timespan?: string;      // e.g. "7d", "3m"
-    mode?: GdeltMode;        // Changed from string to GdeltMode
-    format?: GdeltFormat;   // e.g. "json", "html", etc.
-    sort?: SortOrder;       // e.g. "ToneDesc"
-    maxrecords?: number;    // e.g. 50, up to 250
+const BY_NAME = new Map(
+    COUNTRIES.filter((c) => c.iso2).map((c) => [c.name.toLowerCase(), c.iso2]),
+);
+
+function countryFlag(name?: string): string {
+    return name ? flagEmoji(BY_NAME.get(name.toLowerCase())) : "";
 }
 
 interface ColumnData {
     definition: ColumnDefinition & { id: string };
     articles: Article[];
+    stale: boolean;
 }
 
 interface LoaderData {
@@ -46,142 +54,43 @@ export async function action({ request, context }: LoaderFunctionArgs) {
         const sort = formData.get("sort")?.toString() as SortOrder | undefined;
         const maxrecords = formData.get("maxrecords") ?
             parseInt(formData.get("maxrecords")?.toString() || "0", 10) : undefined;
+        const id = formData.get("id")?.toString();
 
         if (query.length > 0) {
-            await addColumn(db, {
-                query,
-                timespan,
-                mode,
-                sort,
-                maxrecords,
-            });
+            if (intent === "update" && id) {
+                await updateColumn(db, id, { query, timespan, mode, sort, maxrecords });
+            } else {
+                await addColumn(db, { query, timespan, mode, sort, maxrecords });
+            }
         }
     }
 
     return null;
-}
-
-export async function getArticlesForColumn(
-    db: D1Database,
-    colDef: ColumnDefinition & { id: string },
-    forceRefresh = false
-): Promise<Article[]> {
-    // Skip cache if force refresh
-    if (!forceRefresh) {
-        const cached = await getCachedArticles(db, colDef.id);
-        if (cached?.isFresh) {
-            return cached.articles;
-        }
-    }
-
-    // Fetch new results; degrade gracefully on GDELT failure (throttle/outage)
-    let articles;
-    try {
-        articles = await GdeltApi.searchArticles({
-            query: colDef.query,
-            mode: colDef.mode,
-            timespan: colDef.timespan,
-            sort: colDef.sort,
-            maxrecords: colDef.maxrecords,
-        });
-    } catch (error) {
-        console.error("GDELT fetch failed; serving cached/stale data:", error);
-        const stale = await getCachedArticles(db, colDef.id);
-        return stale?.articles ?? [];
-    }
-
-    // Cache the new results
-    await cacheArticles(db, colDef.id, articles.articles || []);
-
-    return articles.articles || [];
 }
 
 export async function loader({ request, context }: LoaderFunctionArgs): Promise<LoaderData> {
     const db = context.cloudflare.env.DB;
 
-    // Check if this is a force refresh request
+    // Force-refresh (?refresh=true) bypasses TTL, so only honor it for Access-gated writers.
     const url = new URL(request.url);
-    const forceRefresh = url.searchParams.get('refresh') === 'true';
+    const forceRefresh =
+        url.searchParams.get("refresh") === "true" &&
+        isWriteAllowed(request, context.cloudflare.env);
 
     const colDefs = await getColumns(db);
-    const columns: ColumnData[] = await Promise.all(colDefs.map(async (def) => ({
+    const coverages = await Promise.all(
+        colDefs.map((def) => getCoverage(db, def, { forceRefresh })),
+    );
+    const columns: ColumnData[] = colDefs.map((def, i) => ({
         definition: def,
-        articles: await getArticlesForColumn(db, def, forceRefresh),
-    })));
+        articles: coverages[i].articles,
+        stale: coverages[i].stale,
+    }));
 
     return {
         columns,
         lastUpdated: new Date().toISOString()
     };
-}
-
-// Keep our custom flag emoji function which works well:
-function getFlagEmoji(countryCode: string) {
-    const codePoints = countryCode
-        .toUpperCase()
-        .split('')
-        .map(char => 127397 + char.charCodeAt(0));
-    return String.fromCodePoint(...codePoints);
-}
-
-// Add more country mappings to improve coverage:
-function getCountryCode(countryName?: string): string | null {
-    if (!countryName) return null;
-
-    // Common country name mappings to ISO 3166-1 alpha-2 codes
-    const countryMap: Record<string, string> = {
-        'United States': 'US',
-        'USA': 'US',
-        'United Kingdom': 'GB',
-        'UK': 'GB',
-        'Russia': 'RU',
-        'China': 'CN',
-        'Japan': 'JP',
-        'Germany': 'DE',
-        'France': 'FR',
-        'Italy': 'IT',
-        'Spain': 'ES',
-        'Canada': 'CA',
-        'Australia': 'AU',
-        'India': 'IN',
-        'Brazil': 'BR',
-        'Mexico': 'MX',
-        'South Korea': 'KR',
-        'Netherlands': 'NL',
-        'Sweden': 'SE',
-        'Norway': 'NO',
-        'Denmark': 'DK',
-        'Finland': 'FI',
-        'Poland': 'PL',
-        'Ireland': 'IE',
-        'Switzerland': 'CH',
-        'Austria': 'AT',
-        'Belgium': 'BE',
-        'Portugal': 'PT',
-        'Greece': 'GR',
-        'New Zealand': 'NZ',
-        'Singapore': 'SG',
-        'Israel': 'IL',
-        'Turkey': 'TR',
-        // Add more as needed
-    };
-
-    // Try direct mapping
-    const code = countryMap[countryName];
-    if (code) return code;
-
-    // Try case-insensitive search
-    const lowerName = countryName.toLowerCase();
-    for (const [name, code] of Object.entries(countryMap)) {
-        if (name.toLowerCase() === lowerName) return code;
-    }
-
-    // If the input is already a 2-letter code, validate and return it
-    if (countryName.length === 2 && /^[A-Za-z]{2}$/.test(countryName)) {
-        return countryName.toUpperCase();
-    }
-
-    return null;
 }
 
 // Add this component for the countdown timer
@@ -252,22 +161,6 @@ export default function Feed() {
     // Determine if we're in a loading state
     const isLoading = navigation.state === "loading" || navigation.state === "submitting";
 
-    // Add grouping function
-    const groupArticlesByTitle = React.useCallback((articles: Article[]) => {
-        const map = new Map<string, Article[]>();
-        for (const article of articles) {
-            const normalizedTitle = article.title.trim().toLowerCase();
-            if (!map.has(normalizedTitle)) {
-                map.set(normalizedTitle, []);
-            }
-            map.get(normalizedTitle)!.push(article);
-        }
-        return Array.from(map.entries()).map(([titleKey, group]) => ({
-            title: group[0].title,
-            articles: group
-        }));
-    }, []);
-
     return (
         <div className="mx-auto p-4">
             <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 mb-4 flex items-center justify-between">
@@ -303,7 +196,7 @@ export default function Feed() {
                     <h2 className="text-xl font-semibold text-blue-300 mb-4">New Column</h2>
                     <Form method="post" className="space-y-4">
                         <input type="hidden" name="intent" value="create" />
-                        
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="col-span-2">
                                 <label className="block text-sm font-medium text-gray-300">
@@ -538,9 +431,9 @@ export default function Feed() {
                                                         <span className="mr-2">
                                                             {firstArticle.sourcecountry && (
                                                                 <span className="inline-flex items-center">
-                                                                    {firstArticle.sourcecountry && getCountryCode(firstArticle.sourcecountry) && (
+                                                                    {firstArticle.sourcecountry && countryFlag(firstArticle.sourcecountry) && (
                                                                         <span className="mr-1" title={firstArticle.sourcecountry}>
-                                                                            {getFlagEmoji(getCountryCode(firstArticle.sourcecountry)!)}
+                                                                            {countryFlag(firstArticle.sourcecountry)}
                                                                         </span>
                                                                     )}
                                                                     {firstArticle.domain ?? "N/A"}
@@ -548,10 +441,9 @@ export default function Feed() {
                                                             )}
                                                         </span>
                                                         <span>
-                                                            {firstArticle.seendate && new Date(firstArticle.seendate.replace(
-                                                                /(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/,
-                                                                '$1-$2-$3T$4:$5:$6Z'
-                                                            )).toLocaleString()}
+                                                            {firstArticle.seendate && (
+                                                                formatSeenLocal(firstArticle.seendate) ?? firstArticle.seendate
+                                                            )}
                                                         </span>
                                                         {typeof firstArticle.tone === 'number' && (
                                                             <span>Tone: {firstArticle.tone.toFixed(2)}</span>
@@ -562,9 +454,9 @@ export default function Feed() {
                                                         {displayedArticles.map((article) => (
                                                             <li key={article.url} className="flex items-center text-gray-400">
                                                                 <span className="inline-flex items-center mr-2">
-                                                                    {article.sourcecountry && getCountryCode(article.sourcecountry) && (
+                                                                    {article.sourcecountry && countryFlag(article.sourcecountry) && (
                                                                         <span className="mr-1" title={article.sourcecountry}>
-                                                                            {getFlagEmoji(getCountryCode(article.sourcecountry)!)}
+                                                                            {countryFlag(article.sourcecountry)}
                                                                         </span>
                                                                     )}
                                                                     {article.domain ?? "N/A"}
@@ -598,4 +490,4 @@ export default function Feed() {
             )}
         </div>
     );
-} 
+}

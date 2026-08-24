@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./styles/ui-theme.css";
 @plugin "@tailwindcss/typography";
 
 @theme {
@@ -13,6 +14,19 @@ body {
   @media (prefers-color-scheme: dark) {
     color-scheme: dark;
   }
+}
+
+/* Respect users who prefer reduced motion: kill decorative animation,
+   keep opacity feedback (HIG / design-baseline) */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
 }
 
 /* Custom Scrollbar Styles */

@@ -19,6 +19,17 @@ export function formatSeenLocal(seen?: string): string | null {
 	return d ? d.toLocaleString() : null;
 }
 
+/**
+ * Deterministic display string (server = client, no hydration mismatch):
+ * "2026-08-24 13:05 UTC". Prefer this over formatSeenLocal for SSR-rendered lists.
+ */
+export function formatSeenUtc(seen?: string): string | null {
+	const d = parseSeenDate(seen);
+	if (!d) return null;
+	const iso = d.toISOString();
+	return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+}
+
 /** RFC-822 pubDate for RSS, from a seendate value. */
 export function seenToRfc822(seen?: string): string | undefined {
 	const d = parseSeenDate(seen);
