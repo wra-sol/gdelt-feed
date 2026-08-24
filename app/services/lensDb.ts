@@ -1,5 +1,7 @@
-import type { SortOrder } from "~/services/gdeltApi";
+import { parseSort } from "~/services/gdeltApi";
 import type { WatchDef } from "~/services/watchEngine";
+import { deleteCachedStmt } from "~/services/articleCache";
+import { deleteNgramHitsStmt } from "~/services/ngrams";
 
 export interface Lens {
 	id: string;
@@ -63,7 +65,7 @@ function rowToWatch(row: WatchRow): WatchDef {
 		terms,
 		geoTerms,
 		timespan: row.timespan ?? undefined,
-		sort: (row.sort as SortOrder) ?? "DateDesc",
+		sort: parseSort(row.sort) ?? "DateDesc",
 		maxrecords: row.maxrecords ?? undefined,
 	};
 }
@@ -96,10 +98,6 @@ export async function createLens(
 		.bind(id, lens.slug, lens.name, lens.countryFips ?? null, lens.description ?? null)
 		.run();
 	return id;
-}
-
-export async function deleteLens(db: D1Database, id: string): Promise<void> {
-	await db.prepare("DELETE FROM lenses WHERE id = ?1").bind(id).run();
 }
 
 export async function getWatchesForLens(db: D1Database, lensId: string): Promise<WatchDef[]> {
@@ -153,6 +151,20 @@ export async function addWatch(db: D1Database, lensId: string, watch: NewWatch):
 }
 
 export async function deleteWatch(db: D1Database, id: string): Promise<void> {
-	await db.prepare("DELETE FROM watches WHERE id = ?1").bind(id).run();
-	await db.prepare("DELETE FROM article_cache WHERE column_id = ?1").bind(id).run();
+	await db.batch([
+		db.prepare("DELETE FROM watches WHERE id = ?1").bind(id),
+		deleteCachedStmt(db, id),
+		deleteNgramHitsStmt(db, id),
+	]);
+}
+
+export async function deleteLens(db: D1Database, id: string): Promise<void> {
+	const { results } = await db
+		.prepare("SELECT id FROM watches WHERE lens_id = ?1")
+		.bind(id)
+		.all<{ id: string }>();
+	await db.batch([
+		db.prepare("DELETE FROM lenses WHERE id = ?1").bind(id),
+		...results.flatMap((w) => [deleteCachedStmt(db, w.id), deleteNgramHitsStmt(db, w.id)]),
+	]);
 }

@@ -13,15 +13,9 @@ export function parseSeenDate(seen?: string): Date | null {
 	return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
 }
 
-/** Locale display string for a seendate value. */
-export function formatSeenLocal(seen?: string): string | null {
-	const d = parseSeenDate(seen);
-	return d ? d.toLocaleString() : null;
-}
-
 /**
  * Deterministic display string (server = client, no hydration mismatch):
- * "2026-08-24 13:05 UTC". Prefer this over formatSeenLocal for SSR-rendered lists.
+ * "2026-08-24 13:05 UTC". Use this for SSR-rendered lists.
  */
 export function formatSeenUtc(seen?: string): string | null {
 	const d = parseSeenDate(seen);

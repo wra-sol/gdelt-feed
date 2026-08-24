@@ -35,16 +35,6 @@ export interface Coverage {
 	stale: boolean;
 }
 
-export async function getCoverage(
-	db: D1Database,
-	watch: WatchRef,
-	opts: { forceRefresh?: boolean } = {},
-): Promise<Coverage> {
-	if (opts.forceRefresh) return revalidateCoverage(db, watch);
-	const cached = await getCoverageCached(db, watch);
-	return cached;
-}
-
 /** Instant: D1-only read. Returns even-stale payloads (check `stale`). */
 export async function getCoverageCached(db: D1Database, watch: WatchRef): Promise<Coverage> {
 	const cached = await getCachedArticles(db, watch.id);
@@ -67,8 +57,22 @@ export async function getCoverageCached(db: D1Database, watch: WatchRef): Promis
 /**
  * Live fetch + cache write. Never throws — degrades to the best known
  * cached state. This is the deferred half of stale-while-revalidate.
+ *
+ * Single-flight per watch (per isolate): concurrent callers share one
+ * in-flight fetch so N simultaneous visitors cannot multiply upstream
+ * requests into GDELT's throttle.
  */
-export async function revalidateCoverage(db: D1Database, watch: WatchRef): Promise<Coverage> {
+const inFlight = new Map<string, Promise<Coverage>>();
+
+export function revalidateCoverage(db: D1Database, watch: WatchRef): Promise<Coverage> {
+	const existing = inFlight.get(watch.id);
+	if (existing) return existing;
+	const promise = doRevalidateCoverage(db, watch).finally(() => inFlight.delete(watch.id));
+	inFlight.set(watch.id, promise);
+	return promise;
+}
+
+async function doRevalidateCoverage(db: D1Database, watch: WatchRef): Promise<Coverage> {
 	const maxrecords = Math.min(Math.max(watch.maxrecords ?? 50, 1), 250);
 	try {
 		const result = await GdeltApi.searchArticles({

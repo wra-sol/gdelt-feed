@@ -17,15 +17,16 @@ export default {
 		if ((env.NGRAMS_ENABLED ?? "").toLowerCase() !== "true") return;
 		const db = env.DB;
 		const { getLenses, getWatchesForLens } = await import("~/services/lensDb");
-		const { ingestLatestMinute } = await import("~/services/ngrams");
+		const { ingestLatestMinute, pruneNgramHits } = await import("~/services/ngrams");
 		const lenses = await getLenses(db);
 		const watches = (
 			await Promise.all(lenses.map((l) => getWatchesForLens(db, l.id)))
 		).flat();
 
 		try {
-			const result = await ingestLatestMinute(db, watches, { enabled: true });
+			const result = await ingestLatestMinute(db, watches);
 			console.log("[ngrams] ingested", result);
+			await pruneNgramHits(db);
 		} catch (error) {
 			console.error("[ngrams] ingestion failed:", error);
 		}

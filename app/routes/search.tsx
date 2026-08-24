@@ -12,14 +12,7 @@ import * as React from "react";
 import type { Article } from '../types/gdelt';
 import { GdeltApi } from "../services/gdeltApi";
 import { groupArticlesByTitle } from "~/lib/grouping";
-import { formatSeenLocal } from "~/lib/date";
-
-interface LoaderData {
-  articles: Article[];
-  query: string;
-  totalResults?: number;
-  throttled?: boolean;
-}
+import { formatSeenUtc } from "~/lib/date";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
@@ -63,14 +56,7 @@ export function ErrorBoundary() {
 }
 
 export default function Search() {
-  const { query, resultsPromise } = useLoaderData() as {
-    query: string;
-    resultsPromise: Promise<{
-      articles: Article[];
-      totalResults: number | undefined;
-      throttled: boolean;
-    }> | null;
-  };
+  const { query, resultsPromise } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const isLoading = navigation.state === "loading";
 
@@ -190,7 +176,7 @@ function SearchResults({
                   )}
                   {firstArticle.seendate && (
                     <span>
-                      Date: {formatSeenLocal(firstArticle.seendate) ?? ""}
+                      Date: {formatSeenUtc(firstArticle.seendate) ?? ""}
                     </span>
                   )}
                   {typeof firstArticle.tone === 'number' && (

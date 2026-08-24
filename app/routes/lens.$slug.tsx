@@ -10,11 +10,12 @@ import {
 import { ConfirmDialog } from "~/components/ConfirmDialog";
 import type { Article } from "~/types/gdelt";
 import { swr } from "~/services/coverage";
+import { isValidTimespan } from "~/services/gdeltApi";
 import { getLensBySlug, getWatchesForLens, addWatch, deleteWatch } from "~/services/lensDb";
 import { compileWatchQuery, type WatchDef } from "~/services/watchEngine";
 import { getRecentNgramHits } from "~/services/ngrams";
 import { groupArticlesByTitle, type ArticleGroup } from "~/lib/grouping";
-import { formatSeenLocal, groupKey, isoToSeenDate } from "~/lib/date";
+	import { formatSeenUtc, groupKey, isoToSeenDate } from "~/lib/date";
 import { computePulse } from "~/lib/pulse";
 import { countryByFips, flagEmoji } from "~/data/countries";
 import { writeGate } from "~/lib/access";
@@ -49,7 +50,7 @@ function watchRef(watch: WatchDef) {
 		query: compileWatchQuery(watch),
 		timespan: watch.timespan,
 		sort: watch.sort,
-		maxrecords: Math.min(watch.maxrecords ?? 50, 250),
+		maxrecords: watch.maxrecords,
 	};
 }
 
@@ -123,10 +124,6 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 			const hits = hitsByWatch.get(watch.id) ?? [];
 			const { immediate, fresh } = await swr(db, watchRef(watch));
 			const view = buildWatchView(watch, immediate.articles, hits, immediate.stale);
-			const initialPulse = computePulse(
-				[{ id: watch.id, articles: view.docArticles }],
-				lastSeenIso,
-			);
 			let freshPromise: Promise<FreshView> | null = null;
 			if (fresh) {
 				freshPromise = fresh.then((coverage) => {
@@ -149,11 +146,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 					};
 				});
 			}
-			return {
-				view,
-				newCount: initialPulse.perWatch[watch.id]?.newCount ?? 0,
-				freshPromise,
-			};
+			return { view, freshPromise };
 		}),
 	);
 
@@ -181,7 +174,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 			total: b.view.total,
 			stale: b.view.stale,
 			ngramUrls: b.view.ngramUrls,
-			newCount: b.newCount,
+			newCount: pulse.perWatch[b.view.id]?.newCount ?? 0,
 			freshPromise: b.freshPromise,
 		})),
 		pulse: {
@@ -209,10 +202,14 @@ export async function action({ request, context }: LoaderFunctionArgs) {
 			.map((t) => t.trim())
 			.filter(Boolean);
 		if (terms.length === 0) return new Response("terms required", { status: 400 });
+		const timespan = formData.get("timespan")?.toString() || undefined;
+		if (timespan && !isValidTimespan(timespan)) {
+			return new Response("invalid timespan", { status: 400 });
+		}
 		await addWatch(db, formData.get("lensId")!.toString(), {
 			label: formData.get("label")!.toString() || terms[0],
 			terms,
-			timespan: formData.get("timespan")?.toString() || undefined,
+			timespan,
 		});
 	}
 
@@ -235,7 +232,7 @@ function WatchList({ articles, ngramUrls }: { articles: ArticleGroup[]; ngramUrl
 		<>
 			{articles.map(({ title, articles: grouped }) => {
 				const first = grouped[0];
-				const seenLabel = formatSeenLocal(first.seendate);
+				const seenLabel = formatSeenUtc(first.seendate);
 				return (
 					<div key={title} className="border-t border-gray-800 pt-3 first:border-0 first:pt-0">
 						<a
@@ -264,48 +261,6 @@ function WatchList({ articles, ngramUrls }: { articles: ArticleGroup[]; ngramUrl
 					</div>
 				);
 			})}
-		</>
-	);
-}
-
-/** Deferred half: resolves the streamed fresh coverage via React.use(). */
-function WatchCardBodyDeferred({ promise }: { promise: Promise<FreshView> }) {
-	const fresh = React.use(promise);
-	return (
-		<WatchListStatic
-			groups={fresh.displayGroups}
-			ngramUrls={fresh.ngramUrls}
-			total={fresh.total}
-			stale={fresh.stale}
-			newCount={fresh.newCount}
-		/>
-	);
-}
-
-function WatchListStatic({
-	groups,
-	ngramUrls,
-	total,
-	stale,
-	newCount,
-}: {
-	groups: ArticleGroup[];
-	ngramUrls: string[];
-	total: number;
-	stale: boolean;
-	newCount: number;
-}) {
-	return (
-		<>
-			{newCount > 0 && (
-				<span className="absolute right-4 top-16 rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white">
-					{newCount} new
-				</span>
-			)}
-			<div className="text-xs text-gray-500">
-				<span className="mr-2">{total} articles</span>
-				{stale && <span className="text-yellow-600">· refreshing…</span>}
-			</div>
 		</>
 	);
 }

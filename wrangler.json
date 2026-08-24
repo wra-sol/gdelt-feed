@@ -11,6 +11,8 @@
 	"upload_source_maps": true,
 	"vars": {
 		"ACCESS_GATE_ENABLED": "",
+		"ACCESS_TEAM_DOMAIN": "",
+		"ACCESS_AUD": "",
 		"NGRAMS_ENABLED": "true"
 	},
 	"triggers": {

@@ -53,9 +53,8 @@ async function locateLatestMinute(): Promise<string | null> {
 export async function ingestLatestMinute(
 	db: D1Database,
 	watches: { id: string; terms: string[] }[],
-	opts: { enabled: boolean },
 ): Promise<{ minute: string | null; hits: number; docs: number }> {
-	if (!opts.enabled || watches.length === 0) {
+	if (watches.length === 0) {
 		return { minute: null, hits: 0, docs: 0 };
 	}
 
@@ -224,4 +223,24 @@ export async function getRecentNgramHits(
 		lang: r.lang ?? undefined,
 		publishedAt: r.published_at,
 	}));
+}
+
+/** Statement form for composing atomic multi-table deletes via db.batch. */
+export function deleteNgramHitsStmt(db: D1Database, watchId: string): D1PreparedStatement {
+	return db.prepare("DELETE FROM ngram_articles WHERE watch_id = ?1").bind(watchId);
+}
+
+/**
+ * Retention: readers only look back 24h–30d, so keep a bounded window.
+ * Called from the cron tick; batched DELETE keeps transactions small.
+ */
+export async function pruneNgramHits(
+	db: D1Database,
+	retentionDays = 90,
+): Promise<void> {
+	const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+	await db
+		.prepare("DELETE FROM ngram_articles WHERE published_at < ?1")
+		.bind(cutoff)
+		.run();
 }

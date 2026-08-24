@@ -1,6 +1,5 @@
 import { useLoaderData, useNavigation, useSubmit, type LoaderFunctionArgs } from "react-router";
-import type { GdeltMode, SortOrder } from "~/services/gdeltApi";
-import type { Article } from "../types/gdelt";
+import { isValidTimespan, parseMode, parseSort } from "~/services/gdeltApi";
 import * as React from "react";
 import {
     getColumns,
@@ -11,11 +10,11 @@ import {
 } from "../services/columnsDb";
 import { Form, useRouteError, isRouteErrorResponse } from "react-router";
 import { swr, revalidateCoverage } from "~/services/coverage";
-import { formatSeenLocal } from "~/lib/date";
+import { formatSeenUtc } from "~/lib/date";
 import { groupArticlesByTitle } from "~/lib/grouping";
 import { COUNTRIES, flagEmoji } from "~/data/countries";
 import { ConfirmDialog } from "~/components/ConfirmDialog";
-import { writeGate } from "~/lib/access";
+import { isWriteAllowed, writeGate } from "~/lib/access";
 import { getCloudflare } from "~/lib/cloudflare-context";
 
 const BY_NAME = new Map(
@@ -26,16 +25,56 @@ function countryFlag(name?: string): string {
     return name ? flagEmoji(BY_NAME.get(name.toLowerCase())) : "";
 }
 
-interface ColumnData {
-    definition: ColumnDefinition & { id: string };
-    articles: Article[];
-    stale: boolean;
-    freshPromise?: Promise<{ articles: Article[]; stale: boolean }> | null;
-}
+const TIMESPAN_OPTIONS = [
+    { value: "", label: "All time" },
+    { value: "1d", label: "Last 24 hours" },
+    { value: "7d", label: "Last 7 days" },
+    { value: "1m", label: "Last month" },
+    { value: "3m", label: "Last 3 months" },
+];
 
-interface LoaderData {
-    columns: ColumnData[];
-    lastUpdated: string;  // ISO timestamp
+const SORT_OPTIONS = [
+    { value: "DateDesc", label: "Newest first" },
+    { value: "DateAsc", label: "Oldest first" },
+    { value: "ToneDesc", label: "Most positive" },
+    { value: "ToneAsc", label: "Most negative" },
+];
+
+type ColumnInputResult =
+    | { ok: true; input: ColumnDefinition }
+    | { ok: false; error: string };
+
+/** Validate a column form payload against the same rules GDELT enforces. */
+function parseColumnInput(formData: FormData): ColumnInputResult {
+    const query = formData.get("query")?.toString().trim() ?? "";
+    if (query.length < 3 || query.length > 1000) {
+        return { ok: false, error: "Query must be between 3 and 1000 characters" };
+    }
+
+    const timespan = formData.get("timespan")?.toString() || undefined;
+    if (timespan && !isValidTimespan(timespan)) {
+        return { ok: false, error: `Invalid timespan: ${timespan}` };
+    }
+
+    const maxrecordsRaw = formData.get("maxrecords")?.toString();
+    let maxrecords: number | undefined;
+    if (maxrecordsRaw) {
+        maxrecords = Number.parseInt(maxrecordsRaw, 10);
+        if (!Number.isFinite(maxrecords) || maxrecords < 1 || maxrecords > 250) {
+            return { ok: false, error: "Max records must be between 1 and 250" };
+        }
+    }
+
+    return {
+        ok: true,
+        input: {
+            query,
+            timespan,
+            mode: parseMode(formData.get("mode")?.toString()),
+            sort: parseSort(formData.get("sort")?.toString()),
+            maxrecords,
+        },
+    };
 }
 
 // Modify the action to handle both create, update, and delete
@@ -52,54 +91,144 @@ export async function action({ request, context }: LoaderFunctionArgs) {
             await deleteColumn(db, id);
         }
     } else if (intent === "create" || intent === "update") {
-        const query = formData.get("query")?.toString() || "";
-        const timespan = formData.get("timespan")?.toString();
-        const mode = formData.get("mode")?.toString() as GdeltMode | undefined;
-        const sort = formData.get("sort")?.toString() as SortOrder | undefined;
-        const maxrecords = formData.get("maxrecords") ?
-            parseInt(formData.get("maxrecords")?.toString() || "0", 10) : undefined;
-        const id = formData.get("id")?.toString();
+        const parsed = parseColumnInput(formData);
+        if (!parsed.ok) return new Response(parsed.error, { status: 400 });
 
-        if (query.length > 0) {
-            if (intent === "update" && id) {
-                await updateColumn(db, id, { query, timespan, mode, sort, maxrecords });
-            } else {
-                await addColumn(db, { query, timespan, mode, sort, maxrecords });
-            }
+        if (intent === "update") {
+            const id = formData.get("id")?.toString();
+            if (id) await updateColumn(db, id, parsed.input);
+        } else {
+            await addColumn(db, parsed.input);
         }
     }
 
     return null;
 }
 
-export async function loader({ request, context }: LoaderFunctionArgs): Promise<LoaderData> {
-    const db = getCloudflare(context).env.DB;
+export async function loader({ request, context }: LoaderFunctionArgs) {
+    const cf = getCloudflare(context);
+    const db = cf.env.DB;
 
-    // Force-refresh (?refresh=true) bypasses TTL, so only honor it for Access-gated writers.
+    // Force-refresh (?refresh=true) bypasses TTL — honor it only for Access-gated writers.
     const url = new URL(request.url);
-    const forceRefresh = url.searchParams.get("refresh") === "true";
+    const forceRefresh =
+        url.searchParams.get("refresh") === "true" && (await isWriteAllowed(request, cf.env));
 
     const colDefs = await getColumns(db);
 
     // Instant shell via SWR: D1-only reads paint immediately; stale columns
-    // stream fresh coverage through Suspense (silent swap).
-    const swrResults = await Promise.all(colDefs.map((def) => swr(db, def)));
-    const columns: ColumnData[] = colDefs.map((def, i) => {
-        const { immediate, fresh } = swrResults[i];
-        return {
-            definition: def,
-            articles: immediate.articles,
-            stale: immediate.stale && !fresh ? true : false,
-            freshPromise: forceRefresh
-                ? revalidateCoverage(db, def).then((c) => ({ articles: c.articles, stale: c.stale }))
-                : fresh,
-        };
-    });
+    // stream fresh coverage through Suspense (silent swap). A gated writer's
+    // ?refresh=true reuses the in-flight revalidation when one exists.
+    const columns = await Promise.all(
+        colDefs.map(async (def) => {
+            const { immediate, fresh } = await swr(db, def);
+            return {
+                definition: def,
+                articles: immediate.articles,
+                freshPromise: forceRefresh ? (fresh ?? revalidateCoverage(db, def)) : fresh,
+            };
+        }),
+    );
 
     return {
         columns,
-        lastUpdated: new Date().toISOString()
+        lastUpdated: new Date().toISOString(),
     };
+}
+
+type ColumnData = Awaited<ReturnType<typeof loader>>["columns"][number];
+
+const FIELD_CLASSES = "mt-1 block w-full rounded border border-gray-600 bg-gray-800 text-gray-300 placeholder-gray-500";
+
+function ColumnForm({
+    column,
+    compact,
+    className,
+    onCancel,
+}: {
+    column?: ColumnData["definition"];
+    compact?: boolean;
+    className?: string;
+    onCancel: () => void;
+}) {
+    const pad = compact ? "px-2 py-1" : "px-3 py-2";
+    const buttonPad = compact ? "px-3 py-1" : "px-4 py-2";
+
+    return (
+        <Form method="post" className={className ?? "space-y-4"}>
+            <input type="hidden" name="intent" value={column ? "update" : "create"} />
+            {column && <input type="hidden" name="id" value={column.id} />}
+
+            <div>
+                <label className="block text-sm font-medium text-gray-300">
+                    Query
+                    <input
+                        name="query"
+                        defaultValue={column?.query}
+                        placeholder="e.g., climate change sourcelang:english"
+                        className={`${FIELD_CLASSES} ${pad}`}
+                        required
+                    />
+                </label>
+            </div>
+
+            <div className={compact ? "space-y-3" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
+                <label className="block text-sm font-medium text-gray-300">
+                    Timespan
+                    <select
+                        name="timespan"
+                        defaultValue={column?.timespan}
+                        className={`${FIELD_CLASSES} ${pad}`}
+                    >
+                        {TIMESPAN_OPTIONS.map(({ value, label }) => (
+                            <option key={value} value={value}>{label}</option>
+                        ))}
+                    </select>
+                </label>
+
+                <label className="block text-sm font-medium text-gray-300">
+                    Sort
+                    <select
+                        name="sort"
+                        defaultValue={column?.sort}
+                        className={`${FIELD_CLASSES} ${pad}`}
+                    >
+                        {SORT_OPTIONS.map(({ value, label }) => (
+                            <option key={value} value={value}>{label}</option>
+                        ))}
+                    </select>
+                </label>
+
+                <label className="block text-sm font-medium text-gray-300">
+                    Max Records
+                    <input
+                        type="number"
+                        name="maxrecords"
+                        defaultValue={column?.maxrecords ?? 50}
+                        min="1"
+                        max="250"
+                        className={`${FIELD_CLASSES} ${pad}`}
+                    />
+                </label>
+            </div>
+
+            <div className={`flex gap-2 ${compact ? "" : "pt-4"}`}>
+                <button
+                    type="submit"
+                    className={`${buttonPad} bg-blue-600 text-white rounded hover:bg-blue-500`}
+                >
+                    {column ? "Save" : "Create Column"}
+                </button>
+                <button
+                    type="button"
+                    onClick={onCancel}
+                    className={`${buttonPad} bg-gray-700 text-white rounded hover:bg-gray-600`}
+                >
+                    Cancel
+                </button>
+            </div>
+        </Form>
+    );
 }
 
 function ColumnSkeleton() {
@@ -119,7 +248,7 @@ function ColumnSkeleton() {
 function ColumnArticles({ colData }: { colData: ColumnData }) {
     const fresh = colData.freshPromise ? React.use(colData.freshPromise) : null;
     const articles = fresh ? fresh.articles : colData.articles;
-    const stale = (fresh ? fresh.stale : colData.stale) && !fresh;
+    const stale = fresh?.stale ?? false;
     const groupedArticles = groupArticlesByTitle(articles);
 
     return (
@@ -162,7 +291,7 @@ function ColumnArticles({ colData }: { colData: ColumnData }) {
                                     </span>
                                     <span>
                                         {firstArticle.seendate && (
-                                            formatSeenLocal(firstArticle.seendate) ?? firstArticle.seendate
+                                            formatSeenUtc(firstArticle.seendate) ?? firstArticle.seendate
                                         )}
                                     </span>
                                     {typeof firstArticle.tone === 'number' && (
@@ -241,7 +370,7 @@ export function ErrorBoundary() {
 }
 
 export default function Feed() {
-    const { columns, lastUpdated } = useLoaderData() as LoaderData;
+    const { columns, lastUpdated } = useLoaderData<typeof loader>();
     const navigation = useNavigation();
     const submit = useSubmit();
     const [deletingIds, setDeletingIds] = React.useState<Set<string>>(new Set());
@@ -317,84 +446,7 @@ export default function Feed() {
             {editingId === 'new' && (
                 <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 mb-6">
                     <h2 className="text-xl font-semibold text-blue-300 mb-4">New Column</h2>
-                    <Form method="post" className="space-y-4">
-                        <input type="hidden" name="intent" value="create" />
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="col-span-2">
-                                <label className="block text-sm font-medium text-gray-300">
-                                    Query
-                                    <input
-                                        name="query"
-                                        placeholder="e.g., climate change sourcelang:english"
-                                        className="mt-1 block w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-gray-300 placeholder-gray-500"
-                                        required
-                                    />
-                                </label>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300">
-                                    Timespan
-                                    <select
-                                        name="timespan"
-                                        className="mt-1 block w-full rounded border border-gray-600 bg-gray-800 px-3 py-2"
-                                    >
-                                        <option value="">All time</option>
-                                        <option value="1d">Last 24 hours</option>
-                                        <option value="7d">Last 7 days</option>
-                                        <option value="1m">Last month</option>
-                                        <option value="3m">Last 3 months</option>
-                                    </select>
-                                </label>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300">
-                                    Sort
-                                    <select
-                                        name="sort"
-                                        className="mt-1 block w-full rounded border border-gray-600 bg-gray-800 px-3 py-2"
-                                    >
-                                        <option value="DateDesc">Newest first</option>
-                                        <option value="DateAsc">Oldest first</option>
-                                        <option value="ToneDesc">Most positive</option>
-                                        <option value="ToneAsc">Most negative</option>
-                                    </select>
-                                </label>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300">
-                                    Max Records
-                                    <input
-                                        type="number"
-                                        name="maxrecords"
-                                        defaultValue={50}
-                                        min="1"
-                                        max="250"
-                                        className="mt-1 block w-full rounded border border-gray-600 bg-gray-800 px-3 py-2"
-                                    />
-                                </label>
-                            </div>
-                        </div>
-
-                        <div className="flex gap-2 pt-4">
-                            <button
-                                type="submit"
-                                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-500"
-                            >
-                                Create Column
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setEditingId(null)}
-                                className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </Form>
+                    <ColumnForm onCancel={() => setEditingId(null)} />
                 </div>
             )}
 
@@ -404,7 +456,7 @@ export default function Feed() {
             >
                 {visibleColumns.map((colData) => {
                     const { definition, articles } = colData;
-                    const { id, query, timespan, mode, sort, maxrecords } = definition;
+                    const { id, query, timespan, mode, sort } = definition;
                     const isEditing = id === editingId;
                     const groupedArticles = groupArticlesByTitle(articles);
 
@@ -412,85 +464,12 @@ export default function Feed() {
                             <div key={id} className="border border-gray-700 rounded bg-gray-900 max-h-[80vh] overflow-y-scroll flex-shrink-0 flex-grow-0 w-[350px]">
                                 <div className="sticky top-0 bg-gray-900/95 p-4 border-b border-gray-700">
                                     {isEditing ? (
-                                        <Form method="post" className="space-y-3 mb-4">
-                                            <input type="hidden" name="intent" value="update" />
-                                            <input type="hidden" name="id" value={id} />
-
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-300">
-                                                    Query
-                                                    <input
-                                                        name="query"
-                                                        defaultValue={query}
-                                                        className="mt-1 block w-full rounded border border-gray-600 bg-gray-800 px-2 py-1"
-                                                        required
-                                                    />
-                                                </label>
-                                            </div>
-
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-300">
-                                                    Timespan
-                                                    <select
-                                                        name="timespan"
-                                                        defaultValue={timespan}
-                                                        className="mt-1 block w-full rounded border border-gray-600 bg-gray-800 px-2 py-1"
-                                                    >
-                                                        <option value="">All time</option>
-                                                        <option value="1d">Last 24 hours</option>
-                                                        <option value="7d">Last 7 days</option>
-                                                        <option value="1m">Last month</option>
-                                                        <option value="3m">Last 3 months</option>
-                                                    </select>
-                                                </label>
-                                            </div>
-
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-300">
-                                                    Sort
-                                                    <select
-                                                        name="sort"
-                                                        defaultValue={sort}
-                                                        className="mt-1 block w-full rounded border border-gray-600 bg-gray-800 px-2 py-1"
-                                                    >
-                                                        <option value="DateDesc">Newest first</option>
-                                                        <option value="DateAsc">Oldest first</option>
-                                                        <option value="ToneDesc">Most positive</option>
-                                                        <option value="ToneAsc">Most negative</option>
-                                                    </select>
-                                                </label>
-                                            </div>
-
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-300">
-                                                    Max Records
-                                                    <input
-                                                        type="number"
-                                                        name="maxrecords"
-                                                        defaultValue={maxrecords}
-                                                        min="1"
-                                                        max="250"
-                                                        className="mt-1 block w-full rounded border border-gray-600 bg-gray-800 px-2 py-1"
-                                                    />
-                                                </label>
-                                            </div>
-
-                                            <div className="flex gap-2">
-                                                <button
-                                                    type="submit"
-                                                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-500"
-                                                >
-                                                    Save
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setEditingId(null)}
-                                                    className="px-3 py-1 bg-gray-700 text-white rounded hover:bg-gray-600"
-                                                >
-                                                    Cancel
-                                                </button>
-                                            </div>
-                                        </Form>
+                                        <ColumnForm
+                                            column={definition}
+                                            compact
+                                            className="space-y-3 mb-4"
+                                            onCancel={() => setEditingId(null)}
+                                        />
                                     ) : (
                                         <div className="flex justify-between items-start mb-3">
                                             <h2 className="text-xl font-semibold text-blue-300">

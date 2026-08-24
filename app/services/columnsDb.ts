@@ -1,4 +1,11 @@
-import type { GdeltMode, GdeltFormat, SortOrder } from "~/services/gdeltApi";
+import {
+	parseMode,
+	parseSort,
+	type GdeltFormat,
+	type GdeltMode,
+	type SortOrder,
+} from "~/services/gdeltApi";
+import { deleteCachedStmt } from "~/services/articleCache";
 
 export interface ColumnDefinition {
 	query: string;
@@ -34,9 +41,9 @@ function rowToColumn(row: ColumnRow): ColumnDefinition & { id: string } {
 		id: row.id,
 		query: row.query,
 		timespan: row.timespan ?? undefined,
-		mode: row.mode as GdeltMode | undefined,
+		mode: parseMode(row.mode),
 		format: row.format as GdeltFormat | undefined,
-		sort: row.sort as SortOrder | undefined,
+		sort: parseSort(row.sort),
 		maxrecords: row.maxrecords ?? undefined,
 	};
 }
@@ -98,5 +105,8 @@ export async function updateColumn(
 }
 
 export async function deleteColumn(db: D1Database, id: string): Promise<void> {
-	await db.prepare("DELETE FROM columns WHERE id = ?1").bind(id).run();
+	await db.batch([
+		db.prepare("DELETE FROM columns WHERE id = ?1").bind(id),
+		deleteCachedStmt(db, id),
+	]);
 }

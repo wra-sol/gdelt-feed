@@ -3,7 +3,7 @@ import { getLensBySlug, getWatchesForLens } from "~/services/lensDb";
 import { getCachedArticles } from "~/services/articleCache";
 import { compileWatchQuery } from "~/services/watchEngine";
 import { seenToRfc822 } from "~/lib/date";
-import { tokensMatch } from "~/lib/access";
+import { rssTokenOk } from "~/lib/access";
 import { getCloudflare } from "~/lib/cloudflare-context";
 
 function esc(s: string): string {
@@ -25,11 +25,8 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 
 	// Decision #12: RSS is public, but when the Access gate is on we require
 	// the unguessable per-deployment token so readers can poll unauthenticated.
-	if ((env.ACCESS_GATE_ENABLED ?? "").toLowerCase() === "true") {
-		const token = url.searchParams.get("token");
-		if (!env.RSS_TOKEN || !token || !tokensMatch(token, env.RSS_TOKEN)) {
-			return new Response("Forbidden", { status: 403 });
-		}
+	if (!rssTokenOk(env, url.searchParams.get("token"))) {
+		return new Response("Forbidden", { status: 403 });
 	}
 
 	const db = env.DB;

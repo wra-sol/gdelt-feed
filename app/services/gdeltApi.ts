@@ -14,6 +14,35 @@ export type GdeltMode =
 export type GdeltFormat = 'html' | 'csv' | 'rss' | 'json' | 'jsonp';
 export type SortOrder = 'DateDesc' | 'DateAsc' | 'ToneDesc' | 'ToneAsc';
 
+export const TIMESPAN_PATTERN = /^(\d+[mhdw]|3m)$/;
+
+const SORT_ORDERS: readonly SortOrder[] = ['DateDesc', 'DateAsc', 'ToneDesc', 'ToneAsc'];
+const MODES: readonly GdeltMode[] = [
+  'artlist',
+  'artgallery',
+  'timelinevol',
+  'tonechart',
+  'wordcloudimagetags',
+  'imagecollage',
+  'imagegallery',
+  'timelinelang',
+  'timelinesourcecountry',
+];
+
+/** Whitelist-parse untrusted input (DB rows, form fields) into a SortOrder. */
+export function parseSort(value: string | null | undefined): SortOrder | undefined {
+  return SORT_ORDERS.find((s) => s === value);
+}
+
+/** Whitelist-parse untrusted input (DB rows, form fields) into a GdeltMode. */
+export function parseMode(value: string | null | undefined): GdeltMode | undefined {
+  return MODES.find((m) => m === value);
+}
+
+export function isValidTimespan(value: string): boolean {
+  return TIMESPAN_PATTERN.test(value);
+}
+
 export interface GdeltSearchParams {
   query: string;
   mode?: GdeltMode;
@@ -58,14 +87,6 @@ export class GdeltRateLimitError extends Error {
 }
 
 export class GdeltApi {
-  private static validateTimespan(timespan: string): boolean {
-    return /^(\d+[mhdw]|3m)$/.test(timespan);
-  }
-
-  private static validateCallback(callback: string): boolean {
-    return /^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(callback);
-  }
-
   private static isThrottleText(text: string): boolean {
     const lower = text.slice(0, 400).toLowerCase();
     return THROTTLE_MARKERS.some((m) => lower.includes(m));
@@ -126,11 +147,11 @@ export class GdeltApi {
       throw new Error('Query must be between 3 and 1000 characters');
     }
 
-    if (timespan && !this.validateTimespan(timespan)) {
+    if (timespan && !isValidTimespan(timespan)) {
       throw new Error('Invalid timespan format');
     }
 
-    if (callback && !this.validateCallback(callback)) {
+    if (callback && !/^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(callback)) {
       throw new Error('Invalid callback function name');
     }
 

@@ -52,3 +52,8 @@ export async function cacheArticles(
 		.bind(columnId, JSON.stringify(articles), new Date().toISOString())
 		.run();
 }
+
+/** Statement form for composing atomic multi-table deletes via db.batch. */
+export function deleteCachedStmt(db: D1Database, columnId: string): D1PreparedStatement {
+	return db.prepare("DELETE FROM article_cache WHERE column_id = ?1").bind(columnId);
+}
