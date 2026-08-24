@@ -9,7 +9,8 @@
     "deploy": "npm run build && wrangler deploy",
     "typecheck": "react-router typegen && tsc -b",
     "cf-typegen": "wrangler types",
-    "check": "tsc -b && npm run build && wrangler deploy --dry-run"
+    "check": "tsc -b && npm run build && wrangler deploy --dry-run",
+    "test": "vitest run"
   },
   "dependencies": {
     "isbot": "^5.1.17",
@@ -29,6 +30,7 @@
     "tailwindcss": "^4.1.17",
     "typescript": "^5.7.2",
     "vite": "^7.0.0",
+    "vitest": "^4.1.11",
     "wrangler": "^4.125.0"
   }
 }

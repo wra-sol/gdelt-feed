@@ -3,6 +3,8 @@ import type { Article } from "~/types/gdelt";
 export interface CachedArticles {
 	articles: Article[];
 	isFresh: boolean;
+	/** Real instant of the upstream fetch that produced this payload. */
+	lastFetched?: string;
 }
 
 const FRESH_MS = 15 * 60 * 1000;
@@ -27,7 +29,7 @@ export async function getCachedArticles(
 			return null;
 		}
 
-		return { articles, isFresh };
+		return { articles, isFresh, lastFetched: result.last_fetched };
 	} catch (error) {
 		console.error("Error parsing cached articles:", error);
 		return null;

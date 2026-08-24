@@ -1,4 +1,5 @@
 import type { Article } from "~/types/gdelt";
+import { parseSeenDate } from "~/lib/date";
 
 export interface ArticleGroup {
 	title: string;
@@ -19,12 +20,4 @@ export function groupArticlesByTitle(articles: Article[]): ArticleGroup[] {
 	}));
 }
 
-export function parseSeenDate(seen?: string): Date | null {
-	if (!seen) return null;
-	const normalized = seen.replace(
-		/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/,
-		"$1-$2-$3T$4:$5:$6Z",
-	);
-	const d = new Date(normalized);
-	return Number.isNaN(d.getTime()) ? null : d;
-}
+export { parseSeenDate };
