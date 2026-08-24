@@ -29,6 +29,7 @@
 | 11 | Aboutness | Pipeline, not feature: `Watch` = structured data `{terms[], geo?, themes[]}` in D1; query compiler emits best-available arbiter (DOC toponyms → GEO 2.0 location filters → GKG later); curated flagship boolean blocks at launch; all clone-and-edit; provenance labeled |
 | 14 | Scope floor | None pre-agreed, BUT **continuous-deploy discipline**: every epic merges deployable; partial completion still ships live artifact |
 | 15 | Name | Product = **Meridian**; repo stays `gdelt-feed` |
+| 16 | Ngrams (2026-08-24) | **Hybrid source**: DOC stays primary (tone!); GDELT web-ngrams minute-files ingested by Cron (`:06/:21/:36/:51`) into `ngram_articles` as throttle-proof secondary coverage + self-accumulating history. Context: GDELT's legacy Elasticsearch backend is being migrated to Spanner ("GDELT 5", announced 2026-04, ongoing) — throttles are transition pain; ngrams is their official interim off-ramp and keeps working regardless |
 
 ## What exists today (verified against HEAD `017c82b`)
 
@@ -89,6 +90,7 @@ npm run typecheck && npm run build  # both green at baseline
 | DOC 2.0 | `api.gdeltproject.org/api/v2/doc/doc` | 15min–3mo | Full-text over machine-translated 65 langs. Modes: artlist/timelinevol/tonechart/etc — **each mode returns different JSON shapes** (timelinevol = date/value arrays). No pagination; maxrecords ≤250. Supports domainis:, sourcelang:, sourcecountry:, near:, tone:/toneabs:, theme:(unverified live), image ops |
 | GEO 2.0 | `/api/v2/geo/geo` | 15min–**7d** | Subject-geography: `locationcc:` `locationadm1:` `near:` operators; modes pointdata/adm1/country/sourcecountry (**tokens differ from DOC**, e.g. `pointdata`); formats GeoJSON/RSS/JSONFeed/CSV. **Endpoint intermittently 404s independent of DOC** (community-confirmed 2026-05) — never a hard dependency |
 | TV 2.0 / Context | IA TV News / entity context | varies | Backlog |
+| Web NGRAMS | `data.gdeltproject.org/gdeltv5/weblegacy/ngrams/<YYYYMMDDHHMM00>.{ngrams.txt.gz,toc.json.gz}` | 1-minute files, 15-min heartbeat (minute ≡ 1 mod 15) | Quadgram histograms + JSONL TOC (url/title/img/lang). ~8MB gz ngrams + ~300KB gz TOC per file. No tone. Keyless GCS — no rate limits. Ingester: `app/services/ngrams.ts` via scheduled handler; **requires Workers Paid** (measured 5.9s CPU/ingest in workerd) |
 
 **Operational quirks (probed live):**
 - **Throttle**: docs/community say ~1 req/5s and ~250/day/IP; observed cooldown after a 3-request burst ran **minutes, not seconds**. Design for: shared cache first (D1 TTL = one fetch serves all visitors), ≥6s spacing between upstream calls, exponential backoff on throttle text (it arrives as HTTP 200 plain text, not 429!).
