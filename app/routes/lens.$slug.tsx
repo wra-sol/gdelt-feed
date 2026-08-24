@@ -17,7 +17,8 @@ import { groupArticlesByTitle, type ArticleGroup } from "~/lib/grouping";
 import { formatSeenLocal, groupKey, isoToSeenDate } from "~/lib/date";
 import { computePulse } from "~/lib/pulse";
 import { countryByFips, flagEmoji } from "~/data/countries";
-import { isWriteAllowed, writeDenied } from "~/lib/access";
+import { writeGate } from "~/lib/access";
+import { getCloudflare } from "~/lib/cloudflare-context";
 
 /**
  * Per-watch view. docArticles is the DOC-coverage primary list — the ONLY
@@ -32,8 +33,10 @@ interface WatchView extends WatchDef {
 	stale: boolean;
 }
 
+export const middleware = [writeGate];
+
 export async function loader({ params, request, context }: LoaderFunctionArgs) {
-	const db = context.cloudflare.env.DB;
+	const db = getCloudflare(context).env.DB;
 	const lens = await getLensBySlug(db, params.slug!);
 	if (!lens) throw new Response("Lens not found", { status: 404 });
 
@@ -131,9 +134,8 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, context }: LoaderFunctionArgs) {
-	if (!isWriteAllowed(request, context.cloudflare.env)) return writeDenied();
 
-	const db = context.cloudflare.env.DB;
+	const db = getCloudflare(context).env.DB;
 	const formData = await request.formData();
 	const intent = formData.get("intent")?.toString();
 

@@ -1,9 +1,12 @@
+import type { RouterContextProvider } from "react-router";
+import { getCloudflare } from "./cloudflare-context";
+
 /**
  * Cloudflare Access gate.
  *
  * The edge-level Zero-Trust application (configured at deploy time) protects
- * mutation paths; this app-side check is belt-and-braces so writes fail closed
- * even if someone bypasses the edge policy.
+ * mutation paths; this app-side middleware is belt-and-braces so writes fail
+ * closed even if someone bypasses the edge policy.
  *
  * Reads and RSS stay public by design (decision #12). During seeding /
  * local dev, leave ACCESS_GATE_ENABLED unset or empty and everything passes.
@@ -18,6 +21,18 @@ export function writeDenied(): Response {
 		status: 401,
 		headers: { "Content-Type": "text/plain" },
 	});
+}
+
+/** RRv8 route middleware: gates mutations (non-GET) behind the Access check. */
+export function writeGate({
+	request,
+	context,
+}: {
+	request: Request;
+	context: RouterContextProvider;
+}) {
+	if (request.method === "GET") return;
+	if (!isWriteAllowed(request, getCloudflare(context).env)) throw writeDenied();
 }
 
 /** Constant-time string comparison for bearer-style tokens. */

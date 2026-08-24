@@ -4,6 +4,7 @@ import { getCachedArticles } from "~/services/articleCache";
 import { compileWatchQuery } from "~/services/watchEngine";
 import { seenToRfc822 } from "~/lib/date";
 import { tokensMatch } from "~/lib/access";
+import { getCloudflare } from "~/lib/cloudflare-context";
 
 function esc(s: string): string {
 	return s
@@ -19,7 +20,7 @@ function esc(s: string): string {
  * upstream GDELT fetches, keeping the token budget for page renders.
  */
 export async function loader({ params, request, context }: LoaderFunctionArgs) {
-	const env = context.cloudflare.env;
+	const env = getCloudflare(context).env;
 	const url = new URL(request.url);
 
 	// Decision #12: RSS is public, but when the Access gate is on we require

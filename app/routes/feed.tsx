@@ -11,11 +11,12 @@ import {
 } from "../services/columnsDb";
 import { Form, useRouteError, isRouteErrorResponse } from "react-router";
 import { getCoverage } from "~/services/coverage";
-import { isWriteAllowed, writeDenied } from "~/lib/access";
 import { formatSeenLocal } from "~/lib/date";
 import { groupArticlesByTitle } from "~/lib/grouping";
 import { COUNTRIES, flagEmoji } from "~/data/countries";
 import { ConfirmDialog } from "~/components/ConfirmDialog";
+import { writeGate } from "~/lib/access";
+import { getCloudflare } from "~/lib/cloudflare-context";
 
 const BY_NAME = new Map(
     COUNTRIES.filter((c) => c.iso2).map((c) => [c.name.toLowerCase(), c.iso2]),
@@ -37,9 +38,10 @@ interface LoaderData {
 }
 
 // Modify the action to handle both create, update, and delete
+export const middleware = [writeGate];
+
 export async function action({ request, context }: LoaderFunctionArgs) {
-    if (!isWriteAllowed(request, context.cloudflare.env)) return writeDenied();
-    const db = context.cloudflare.env.DB;
+    const db = getCloudflare(context).env.DB;
     const formData = await request.formData();
     const intent = formData.get("intent")?.toString();
 
@@ -70,13 +72,11 @@ export async function action({ request, context }: LoaderFunctionArgs) {
 }
 
 export async function loader({ request, context }: LoaderFunctionArgs): Promise<LoaderData> {
-    const db = context.cloudflare.env.DB;
+    const db = getCloudflare(context).env.DB;
 
     // Force-refresh (?refresh=true) bypasses TTL, so only honor it for Access-gated writers.
     const url = new URL(request.url);
-    const forceRefresh =
-        url.searchParams.get("refresh") === "true" &&
-        isWriteAllowed(request, context.cloudflare.env);
+    const forceRefresh = url.searchParams.get("refresh") === "true";
 
     const colDefs = await getColumns(db);
     const coverages = await Promise.all(

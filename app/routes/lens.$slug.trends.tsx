@@ -5,6 +5,7 @@ import { fetchVolumeTimeline, averageTone, type TimelinePoint } from "~/services
 import { getCachedArticles } from "~/services/articleCache";
 import { getNgramDailySeries } from "~/services/ngrams";
 import { TrendChart } from "~/components/TrendChart";
+import { getCloudflare } from "~/lib/cloudflare-context";
 
 interface WatchTrend {
 	id: string;
@@ -16,7 +17,7 @@ interface WatchTrend {
 }
 
 export async function loader({ params, context }: LoaderFunctionArgs) {
-	const db = context.cloudflare.env.DB;
+	const db = getCloudflare(context).env.DB;
 	const lens = await getLensBySlug(db, params.slug!);
 	if (!lens) throw new Response("Lens not found", { status: 404 });
 
