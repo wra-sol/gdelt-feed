@@ -40,20 +40,36 @@ export async function getCoverage(
 	watch: WatchRef,
 	opts: { forceRefresh?: boolean } = {},
 ): Promise<Coverage> {
-	const maxrecords = Math.min(Math.max(watch.maxrecords ?? 50, 1), 250);
+	if (opts.forceRefresh) return revalidateCoverage(db, watch);
+	const cached = await getCoverageCached(db, watch);
+	return cached;
+}
 
-	if (!opts.forceRefresh) {
-		const cached = await getCachedArticles(db, watch.id);
-		if (cached?.isFresh) {
-			return {
-				articles: cached.articles,
-				source: "cache",
-				fetchedAt: cached.lastFetched ?? null,
-				stale: false,
-			};
-		}
+/** Instant: D1-only read. Returns even-stale payloads (check `stale`). */
+export async function getCoverageCached(db: D1Database, watch: WatchRef): Promise<Coverage> {
+	const cached = await getCachedArticles(db, watch.id);
+	if (cached?.isFresh) {
+		return {
+			articles: cached.articles,
+			source: "cache",
+			fetchedAt: cached.lastFetched ?? null,
+			stale: false,
+		};
 	}
+	return {
+		articles: cached?.articles ?? [],
+		source: "stale-cache",
+		fetchedAt: cached?.lastFetched ?? null,
+		stale: true,
+	};
+}
 
+/**
+ * Live fetch + cache write. Never throws — degrades to the best known
+ * cached state. This is the deferred half of stale-while-revalidate.
+ */
+export async function revalidateCoverage(db: D1Database, watch: WatchRef): Promise<Coverage> {
+	const maxrecords = Math.min(Math.max(watch.maxrecords ?? 50, 1), 250);
 	try {
 		const result = await GdeltApi.searchArticles({
 			query: watch.query,
@@ -69,7 +85,7 @@ export async function getCoverage(
 			stale: false,
 		};
 	} catch (error) {
-		console.error(`[coverage] ${watch.id} fetch failed:`, error);
+		console.error(`[coverage] ${watch.id} revalidation failed:`, error);
 		const cached = await getCachedArticles(db, watch.id);
 		return {
 			articles: cached?.articles ?? [],
@@ -78,4 +94,18 @@ export async function getCoverage(
 			stale: true,
 		};
 	}
+}
+
+/**
+ * Stale-while-revalidate for streaming loaders:
+ * instant cached view + a fresh-coverage promise, non-null only when the
+ * cache was stale (nothing to stream on a fresh hit).
+ */
+export async function swr(
+	db: D1Database,
+	watch: WatchRef,
+): Promise<{ immediate: Coverage; fresh: Promise<Coverage> | null }> {
+	const immediate = await getCoverageCached(db, watch);
+	const fresh = immediate.stale ? revalidateCoverage(db, watch) : null;
+	return { immediate, fresh };
 }

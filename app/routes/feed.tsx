@@ -10,7 +10,7 @@ import {
     type ColumnDefinition,
 } from "../services/columnsDb";
 import { Form, useRouteError, isRouteErrorResponse } from "react-router";
-import { getCoverage } from "~/services/coverage";
+import { swr, revalidateCoverage } from "~/services/coverage";
 import { formatSeenLocal } from "~/lib/date";
 import { groupArticlesByTitle } from "~/lib/grouping";
 import { COUNTRIES, flagEmoji } from "~/data/countries";
@@ -30,6 +30,7 @@ interface ColumnData {
     definition: ColumnDefinition & { id: string };
     articles: Article[];
     stale: boolean;
+    freshPromise?: Promise<{ articles: Article[]; stale: boolean }> | null;
 }
 
 interface LoaderData {
@@ -79,19 +80,134 @@ export async function loader({ request, context }: LoaderFunctionArgs): Promise<
     const forceRefresh = url.searchParams.get("refresh") === "true";
 
     const colDefs = await getColumns(db);
-    const coverages = await Promise.all(
-        colDefs.map((def) => getCoverage(db, def, { forceRefresh })),
-    );
-    const columns: ColumnData[] = colDefs.map((def, i) => ({
-        definition: def,
-        articles: coverages[i].articles,
-        stale: coverages[i].stale,
-    }));
+
+    // Instant shell via SWR: D1-only reads paint immediately; stale columns
+    // stream fresh coverage through Suspense (silent swap).
+    const swrResults = await Promise.all(colDefs.map((def) => swr(db, def)));
+    const columns: ColumnData[] = colDefs.map((def, i) => {
+        const { immediate, fresh } = swrResults[i];
+        return {
+            definition: def,
+            articles: immediate.articles,
+            stale: immediate.stale && !fresh ? true : false,
+            freshPromise: forceRefresh
+                ? revalidateCoverage(db, def).then((c) => ({ articles: c.articles, stale: c.stale }))
+                : fresh,
+        };
+    });
 
     return {
         columns,
         lastUpdated: new Date().toISOString()
     };
+}
+
+function ColumnSkeleton() {
+    return (
+        <div className="space-y-3 p-4" role="status" aria-label="Fetching latest articles">
+            <p className="text-xs text-blue-300">Fetching latest coverage…</p>
+            {[0, 1, 2].map((i) => (
+                <div key={i} className="animate-pulse space-y-1.5 border-t border-gray-800 pt-3 first:border-0 first:pt-0">
+                    <div className="h-3 w-full rounded bg-gray-800" />
+                    <div className="h-2.5 w-2/3 rounded bg-gray-800" />
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function ColumnArticles({ colData }: { colData: ColumnData }) {
+    const fresh = colData.freshPromise ? React.use(colData.freshPromise) : null;
+    const articles = fresh ? fresh.articles : colData.articles;
+    const stale = (fresh ? fresh.stale : colData.stale) && !fresh;
+    const groupedArticles = groupArticlesByTitle(articles);
+
+    return (
+        <>
+            {articles.length === 0 ? (
+                <div className="p-4">
+                    <p className="text-sm text-gray-400">No articles matched this query{colData.definition.timespan ? ` in the last ${colData.definition.timespan}` : ""}.</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                        Try a wider timespan, fewer words, or edit the query above.
+                    </p>
+                </div>
+            ) : (
+                <div className="space-y-6 p-4">
+                    {groupedArticles.map(({ title, articles: grouped }) => {
+                        const firstArticle = grouped[0];
+                        const displayedArticles = grouped.slice(0, 3);
+                        const totalCount = grouped.length;
+
+                        return (
+                            <div key={title} className="border-t border-gray-700 pt-4 first:border-t-0 first:pt-0">
+                                <h3 className="font-medium mb-2">
+                                    <a
+                                        href={firstArticle.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-400 hover:underline"
+                                    >
+                                        {title}
+                                    </a>
+                                </h3>
+
+                                <div className="text-sm text-gray-400 mb-2 space-x-2">
+                                    <span className="mr-2">
+                                        {firstArticle.sourcecountry && countryFlag(firstArticle.sourcecountry) && (
+                                            <span className="mr-1" title={firstArticle.sourcecountry}>
+                                                {countryFlag(firstArticle.sourcecountry)}
+                                            </span>
+                                        )}
+                                        {firstArticle.domain ?? "N/A"}
+                                    </span>
+                                    <span>
+                                        {firstArticle.seendate && (
+                                            formatSeenLocal(firstArticle.seendate) ?? firstArticle.seendate
+                                        )}
+                                    </span>
+                                    {typeof firstArticle.tone === 'number' && (
+                                        <span>Tone: {firstArticle.tone.toFixed(2)}</span>
+                                    )}
+                                </div>
+
+                                <ul className="space-y-2 text-sm">
+                                    {displayedArticles.map((article) => (
+                                        <li key={article.url} className="flex items-center text-gray-400">
+                                            <a
+                                                href={article.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center mr-2 text-blue-300 hover:underline"
+                                                title={`Open article from ${article.domain ?? "unknown source"}`}
+                                            >
+                                                {article.sourcecountry && countryFlag(article.sourcecountry) && (
+                                                    <span className="mr-1" title={article.sourcecountry}>
+                                                        {countryFlag(article.sourcecountry)}
+                                                    </span>
+                                                )}
+                                                {article.domain ?? "View source"}
+                                            </a>
+                                        </li>
+                                    ))}
+                                </ul>
+
+                                {totalCount > 3 && (
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        +{totalCount - 3} more source{totalCount - 3 > 1 ? 's' : ''}
+                                    </p>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+            {stale && (
+                <p className="px-4 pb-3 text-xs text-yellow-600">
+                    Cached view — live fetch throttled; will refresh automatically.
+                </p>
+            )}
+        </>
+    );
 }
 
 // Add this component for the countdown timer
@@ -403,91 +519,13 @@ export default function Feed() {
                                         {sort && <span className="mr-2">Sort: {sort}</span>}
                                     </div>
                                 </div>
-                                {articles.length === 0 ? (
-                                    <div className="p-4">
-                                        <p className="text-sm text-gray-400">No articles matched this query{timespan ? ` in the last ${timespan}` : ""}.</p>
-                                        <p className="mt-1 text-xs text-gray-500">
-                                            Try a wider timespan, fewer words, or edit the query above.
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-6 p-4">
-                                        {groupedArticles.map(({ title, articles: grouped }) => {
-                                            const firstArticle = grouped[0];
-                                            const displayedArticles = grouped.slice(0, 3);
-                                            const totalCount = grouped.length;
-
-                                            return (
-                                                <div key={title} className="border-t border-gray-700 pt-4 first:border-t-0 first:pt-0">
-                                                    <h3 className="font-medium mb-2">
-                                                        <a
-                                                            href={firstArticle.url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-blue-400 hover:underline"
-                                                        >
-                                                            {title}
-                                                        </a>
-                                                    </h3>
-
-                                                    <div className="text-sm text-gray-400 mb-2 space-x-2">
-                                                        <span className="mr-2">
-                                                            {firstArticle.sourcecountry && (
-                                                                <span className="inline-flex items-center">
-                                                                    {firstArticle.sourcecountry && countryFlag(firstArticle.sourcecountry) && (
-                                                                        <span className="mr-1" title={firstArticle.sourcecountry}>
-                                                                            {countryFlag(firstArticle.sourcecountry)}
-                                                                        </span>
-                                                                    )}
-                                                                    {firstArticle.domain ?? "N/A"}
-                                                                </span>
-                                                            )}
-                                                        </span>
-                                                        <span>
-                                                            {firstArticle.seendate && (
-                                                                formatSeenLocal(firstArticle.seendate) ?? firstArticle.seendate
-                                                            )}
-                                                        </span>
-                                                        {typeof firstArticle.tone === 'number' && (
-                                                            <span>Tone: {firstArticle.tone.toFixed(2)}</span>
-                                                        )}
-                                                    </div>
-
-                                                    <ul className="space-y-2 text-sm">
-                                                        {displayedArticles.map((article) => (
-                                                            <li key={article.url} className="flex items-center text-gray-400">
-                                                                <a
-                                                                    href={article.url}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="inline-flex items-center mr-2 text-blue-300 hover:underline"
-                                                                    title={`Open article from ${article.domain ?? "unknown source"}`}
-                                                                >
-                                                                    {article.sourcecountry && countryFlag(article.sourcecountry) && (
-                                                                        <span className="mr-1" title={article.sourcecountry}>
-                                                                            {countryFlag(article.sourcecountry)}
-                                                                        </span>
-                                                                    )}
-                                                                    {article.domain ?? "View source"}
-                                                                </a>
-                                                            </li>
-                                                        ))}
-                                                    </ul>
-
-                                                    {totalCount > 3 && (
-                                                        <p className="text-xs text-gray-500 mt-1">
-                                                            +{totalCount - 3} more source{totalCount - 3 > 1 ? 's' : ''}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
+                                <React.Suspense fallback={<ColumnSkeleton />}>
+                                    <ColumnArticles colData={colData} />
+                                </React.Suspense>
                             </div>
                         );
                     })}
-            </div>
+                </div>
 
             <ConfirmDialog
                 open={pendingDelete !== null}

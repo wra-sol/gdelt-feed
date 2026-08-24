@@ -25,20 +25,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const query = url.searchParams.get("q");
   if (!query) {
-    return { articles: [] as Article[], query: "", totalResults: undefined, throttled: false };
+    return { query: "", resultsPromise: null };
   }
-  try {
-    const results = await GdeltApi.searchArticles({ query });
-    return {
+  // Deferred: the form paints instantly; results stream in via Suspense.
+  const resultsPromise = GdeltApi.searchArticles({ query })
+    .then((results) => ({
       articles: results.articles,
-      query,
       totalResults: results.totalResults,
       throttled: false,
-    };
-  } catch (error) {
-    console.error("search fetch failed:", error);
-    return { articles: [] as Article[], query, totalResults: undefined, throttled: true };
-  }
+    }))
+    .catch((error) => {
+      console.error("search fetch failed:", error);
+      return { articles: [] as Article[], totalResults: undefined, throttled: true };
+    });
+  return { query, resultsPromise };
 }
 
 export function ErrorBoundary() {
@@ -63,17 +63,17 @@ export function ErrorBoundary() {
 }
 
 export default function Search() {
-  const { articles, query, totalResults, throttled } = useLoaderData() as LoaderData;
+  const { query, resultsPromise } = useLoaderData() as {
+    query: string;
+    resultsPromise: Promise<{
+      articles: Article[];
+      totalResults: number | undefined;
+      throttled: boolean;
+    }> | null;
+  };
   const navigation = useNavigation();
-  const submit = useSubmit();
-  const [searchParams] = useSearchParams();
-
   const isLoading = navigation.state === "loading";
 
-  const groupedArticles = React.useMemo(
-    () => groupArticlesByTitle(articles),
-    [articles],
-  );
   return (
     <div className="max-w-4xl mx-auto bg-gray-800 text-gray-200 p-4">
       <h1 className="text-2xl font-bold mb-4">Search News Articles</h1>
@@ -82,7 +82,7 @@ export default function Search() {
         <input
           type="search"
           name="q"
-          defaultValue={searchParams.get("q") ?? ""}
+          defaultValue={query}
           placeholder='Search news (e.g. "climate change" sourcelang:english)'
           className="w-full p-2 border border-gray-600 rounded bg-gray-700 
                      text-gray-200 placeholder-gray-400"
@@ -99,22 +99,62 @@ export default function Search() {
         </button>
       </Form>
 
-      {totalResults !== undefined && (
+      {resultsPromise ? (
+        <React.Suspense fallback={<ResultsSkeleton />}>
+          <SearchResults resultsPromise={resultsPromise} query={query} />
+        </React.Suspense>
+      ) : null}
+    </div>
+  );
+}
+
+function ResultsSkeleton() {
+  return (
+    <div className="space-y-4" role="status" aria-label="Searching">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="animate-pulse rounded border border-gray-700 bg-gray-900 p-4 flex gap-4">
+          <div className="h-32 w-32 flex-shrink-0 rounded bg-gray-800" />
+          <div className="flex-1 space-y-2 py-1">
+            <div className="h-4 w-3/4 rounded bg-gray-800" />
+            <div className="h-3 w-1/2 rounded bg-gray-800" />
+            <div className="h-3 w-2/3 rounded bg-gray-800" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SearchResults({
+  resultsPromise,
+  query,
+}: {
+  resultsPromise: NonNullable<
+    Awaited<ReturnType<typeof loader>>["resultsPromise"]
+  >;
+  query: string;
+}) {
+  const results = React.use(resultsPromise);
+  const groupedArticles = groupArticlesByTitle(results.articles);
+
+  return (
+    <>
+      {results.totalResults !== undefined && (
         <p className="text-sm text-gray-400 mb-4">
-          Found {totalResults} results for "{query}"
+          Found {results.totalResults} results for "{query}"
         </p>
       )}
 
       <div className="space-y-4">
-        {groupedArticles.length > 0 && groupedArticles.map(({ title, articles: grouped }) => {
+        {groupedArticles.map(({ title, articles: grouped }) => {
           const firstArticle = grouped[0];
           const hasImage = Boolean(firstArticle.socialimage);
           const displayedArticles = grouped.slice(0, 5);
           const totalCount = grouped.length;
-          
+
           return (
-            <article 
-              key={title} 
+            <article
+              key={title}
               className="p-4 border border-gray-700 rounded bg-gray-900 flex items-start gap-4"
             >
               {hasImage ? (
@@ -182,13 +222,11 @@ export default function Search() {
             </article>
           );
         })}
-        {articles.length === 0 && (
+        {results.articles.length === 0 && (
           <div className="rounded border border-gray-700 bg-gray-900 p-4">
-            {throttled ? (
+            {results.throttled ? (
               <>
-                <p className="text-yellow-300">
-                  GDELT is throttling requests right now.
-                </p>
+                <p className="text-yellow-300">GDELT is throttling requests right now.</p>
                 <p className="mt-1 text-sm text-gray-500">
                   Search again in a few minutes — the limit resets on its own.
                 </p>
@@ -196,7 +234,8 @@ export default function Search() {
             ) : (
               <>
                 <p className="text-gray-400">
-                  No articles matched “{query}”{totalResults === 0 ? " in GDELT's index" : ""}.
+                  No articles matched “{query}”
+                  {results.totalResults === 0 ? " in GDELT's index" : ""}.
                 </p>
                 <p className="mt-1 text-sm text-gray-500">
                   Try fewer words, drop operators, or widen the query — GDELT matches
@@ -207,6 +246,6 @@ export default function Search() {
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }

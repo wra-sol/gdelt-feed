@@ -40,6 +40,7 @@ export default function Lenses() {
 					{lenses.map((lens) => (
 						<Link
 							key={lens.id}
+							prefetch="intent"
 							to={`/lens/${lens.slug}`}
 							className="block rounded border border-gray-700 bg-gray-900 p-4 transition-colors hover:border-blue-500"
 						>
