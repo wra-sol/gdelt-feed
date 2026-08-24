@@ -175,6 +175,34 @@ export async function ingestLatestMinute(
 	return { minute, hits, docs };
 }
 
+/** Daily hit-count series per watch — Meridian's own accumulated baseline. */
+export async function getNgramDailySeries(
+	db: D1Database,
+	watchIds: string[],
+	days = 30,
+): Promise<Map<string, { date: string; value: number }[]>> {
+	const map = new Map<string, { date: string; value: number }[]>();
+	if (watchIds.length === 0) return map;
+
+	const placeholders = watchIds.map((_, i) => `?${i + 2}`).join(",");
+	const since = new Date(Date.now() - days * 86_400_000).toISOString();
+	const { results } = await db
+		.prepare(
+			`SELECT watch_id, substr(published_at, 1, 10) AS day, COUNT(*) AS hits
+			 FROM ngram_articles
+			 WHERE watch_id IN (${placeholders}) AND published_at >= ?1
+			 GROUP BY watch_id, day ORDER BY day`,
+		)
+		.bind(since, ...watchIds)
+		.all<{ watch_id: string; day: string; hits: number }>();
+
+	for (const row of results) {
+		if (!map.has(row.watch_id)) map.set(row.watch_id, []);
+		map.get(row.watch_id)!.push({ date: row.day, value: row.hits });
+	}
+	return map;
+}
+
 /** Recent throttle-proof coverage for a set of watches (last 24h by default). */
 export async function getRecentNgramHits(
 	db: D1Database,
