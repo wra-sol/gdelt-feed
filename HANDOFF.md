@@ -176,6 +176,12 @@ New gotcha: under workers-types, `Response.json()` returns `unknown` (not any) �
 - [ ] Unauthenticated visitor: can read lenses + RSS; mutation attempts blocked by Access
 - [ ] LICENSE present; GitHub description/homepage = meridian branding when ready
 
+## Architecture state (post review 2026-08-24)
+
+Deep modules landed (commits a5a8a1b, 7b3f043): **Coverage** (`services/coverage.ts` — the one seam for cache→fetch→fallback; feed + lens consume it), **Pulse** (`lib/pulse.ts` — pure novelty computation), **ngramScan** (`services/ngramScan.ts` — pure quadgram matcher with token-edge boundaries + full provenance; ingest is thin I/O over it). Micro-modules single-sourced: `lib/date` (parse/format/rfc822), `lib/grouping`, `data/countries` flags. Vitest harness: `npm test`, 21 tests. Fixed en route: root ErrorBoundary prop bug, feed edit-duplicates-columns bug, RSS timing-safe compare, public refresh amplification gated.
+
+**Not done (deliberate):** C5 legacy-columns retirement (Speculative — pending confirmation nothing external uses /feed). CONTEXT.md still absent — create when domain terms next crystallize. Remaining hazard: none known from the review strip.
+
 ## Parked backlog
 
 Real auth (on demand) · email digests · GKG/BigQuery archive ingestion (extends trends beyond 3mo; enables true aboutness precision) · GDELT Cloud eval (paid; events/entities/tone; history-from-2026-03 only) · multi-region home UX details · exact crisis/multilingual flagship picks.
