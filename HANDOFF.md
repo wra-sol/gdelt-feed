@@ -182,6 +182,13 @@ Deep modules landed (commits a5a8a1b, 7b3f043): **Coverage** (`services/coverage
 
 **Not done (deliberate):** C5 legacy-columns retirement (Speculative — pending confirmation nothing external uses /feed). CONTEXT.md still absent — create when domain terms next crystallize. Remaining hazard: none known from the review strip.
 
+## Ship state (2026-08-24)
+
+- **Public**: pushed to GitHub `wra-sol/gdelt-feed` @ `7cd478c`+; repo description/homepage/topics set; CI green (`.github/workflows/ci.yml`, actions v5).
+- **Live**: https://meridian-news-lens.narfin.workers.dev — all surfaces 200; cron ingesting (~45 min-files/day, 1,200+ articles accumulated).
+- **UX audit** (external session): all six findings fixed in `7cd478c` — ConfirmDialog replaces window.confirm (feed+lens), 44px labeled icon buttons, inline loading indicator, domain-text links, explanatory empty states, search totalResults + throttle-degradation.
+- **Remaining manual step**: create the Cloudflare Zero-Trust Access application (dashboard — needs Access scopes we don't hold), then set `ACCESS_GATE_ENABLED="true"` var. Until then all writes are open. RSS_TOKEN secret already set.
+
 ## Parked backlog
 
 Real auth (on demand) · email digests · GKG/BigQuery archive ingestion (extends trends beyond 3mo; enables true aboutness precision) · GDELT Cloud eval (paid; events/entities/tone; history-from-2026-03 only) · multi-region home UX details · exact crisis/multilingual flagship picks.
