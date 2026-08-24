@@ -1,16 +1,23 @@
 import type { Article } from "~/types/gdelt";
-import { parseSeenDate } from "~/lib/date";
 
 export interface ArticleGroup {
 	title: string;
 	articles: Article[];
 }
 
+/**
+ * The one dedup/merge key for articles — grouping and ngram→group merging
+ * must agree on it, so both go through here.
+ */
+export function groupKey(article: Pick<Article, "title">): string {
+	return article.title.trim().toLowerCase();
+}
+
 /** Exact-normalized-title grouping (v0 dedup; clustering-v1 ticket pending). */
 export function groupArticlesByTitle(articles: Article[]): ArticleGroup[] {
 	const map = new Map<string, Article[]>();
 	for (const article of articles) {
-		const key = article.title.trim().toLowerCase();
+		const key = groupKey(article);
 		if (!map.has(key)) map.set(key, []);
 		map.get(key)!.push(article);
 	}
@@ -19,5 +26,3 @@ export function groupArticlesByTitle(articles: Article[]): ArticleGroup[] {
 		articles: group,
 	}));
 }
-
-export { parseSeenDate };

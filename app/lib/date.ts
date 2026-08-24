@@ -1,5 +1,3 @@
-import type { Article } from "~/types/gdelt";
-
 /** GDELT seendate: yyyyMMddTHHmmssZ */
 const SEEN_RE = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/;
 
@@ -35,8 +33,4 @@ export function isoToSeenDate(iso: string): string | undefined {
 	const d = new Date(iso);
 	if (Number.isNaN(d.getTime())) return;
 	return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-}
-
-export function groupKey(article: Pick<Article, "title">): string {
-	return article.title.trim().toLowerCase();
 }

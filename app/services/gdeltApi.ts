@@ -1,42 +1,20 @@
 import type { Article } from '../types/gdelt';
 
-export type GdeltMode =
-  | 'artlist'
-  | 'artgallery'
-  | 'timelinevol'
-  | 'tonechart'
-  | 'wordcloudimagetags'
-  | 'imagecollage'
-  | 'imagegallery'
-  | 'timelinelang'
-  | 'timelinesourcecountry';
+/**
+ * Only two DOC modes are used: artlist (coverage) and timelinevol (trends).
+ * The API offers more — add them back when a caller actually needs one.
+ */
+export type GdeltMode = 'artlist' | 'timelinevol';
 
-export type GdeltFormat = 'html' | 'csv' | 'rss' | 'json' | 'jsonp';
 export type SortOrder = 'DateDesc' | 'DateAsc' | 'ToneDesc' | 'ToneAsc';
 
 export const TIMESPAN_PATTERN = /^(\d+[mhdw]|3m)$/;
 
 const SORT_ORDERS: readonly SortOrder[] = ['DateDesc', 'DateAsc', 'ToneDesc', 'ToneAsc'];
-const MODES: readonly GdeltMode[] = [
-  'artlist',
-  'artgallery',
-  'timelinevol',
-  'tonechart',
-  'wordcloudimagetags',
-  'imagecollage',
-  'imagegallery',
-  'timelinelang',
-  'timelinesourcecountry',
-];
 
-/** Whitelist-parse untrusted input (DB rows, form fields) into a SortOrder. */
+/** Whitelist-parse untrusted input (DB rows) into a SortOrder. */
 export function parseSort(value: string | null | undefined): SortOrder | undefined {
   return SORT_ORDERS.find((s) => s === value);
-}
-
-/** Whitelist-parse untrusted input (DB rows, form fields) into a GdeltMode. */
-export function parseMode(value: string | null | undefined): GdeltMode | undefined {
-  return MODES.find((m) => m === value);
 }
 
 export function isValidTimespan(value: string): boolean {
@@ -47,9 +25,7 @@ export interface GdeltSearchParams {
   query: string;
   mode?: GdeltMode;
   timespan?: string;
-  format?: GdeltFormat;
   maxrecords?: number;
-  callback?: string;
   sort?: SortOrder;
 }
 
@@ -138,9 +114,7 @@ export class GdeltApi {
     query,
     mode = 'artlist',
     timespan,
-    format = 'json',
     maxrecords = 75,
-    callback,
     sort = 'DateDesc',
   }: GdeltSearchParams): URLSearchParams {
     if (query.length < 3 || query.length > 1000) {
@@ -151,10 +125,6 @@ export class GdeltApi {
       throw new Error('Invalid timespan format');
     }
 
-    if (callback && !/^[a-zA-Z_$][0-9a-zA-Z_$]*$/.test(callback)) {
-      throw new Error('Invalid callback function name');
-    }
-
     if (maxrecords < 1 || maxrecords > 250) {
       throw new Error('maxrecords must be between 1 and 250');
     }
@@ -162,13 +132,12 @@ export class GdeltApi {
     const params = new URLSearchParams({
       query,
       mode,
-      format,
+      format: 'json',
       maxrecords: maxrecords.toString(),
       sort,
     });
 
     if (timespan) params.append('timespan', timespan);
-    if (callback && format === 'jsonp') params.append('callback', callback);
     return params;
   }
 

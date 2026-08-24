@@ -14,10 +14,11 @@ import { isValidTimespan } from "~/services/gdeltApi";
 import { getLensBySlug, getWatchesForLens, addWatch, deleteWatch } from "~/services/lensDb";
 import { compileWatchQuery, type WatchDef } from "~/services/watchEngine";
 import { getRecentNgramHits } from "~/services/ngrams";
-import { groupArticlesByTitle, type ArticleGroup } from "~/lib/grouping";
-	import { formatSeenUtc, groupKey, isoToSeenDate } from "~/lib/date";
-import { computePulse } from "~/lib/pulse";
-import { countryByFips, flagEmoji } from "~/data/countries";
+	import { groupArticlesByTitle, groupKey, type ArticleGroup } from "~/lib/grouping";
+	import { formatSeenUtc, isoToSeenDate } from "~/lib/date";
+	import { computePulse } from "~/lib/pulse";
+	import { seenCookieValue, seenCookieWrite } from "~/lib/lastSeen";
+	import { lensFlag } from "~/data/countries";
 import { writeGate } from "~/lib/access";
 import { getCloudflare } from "~/lib/cloudflare-context";
 
@@ -105,9 +106,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 
 	const watches = await getWatchesForLens(db, lens.id);
 
-	const cookieName = `m_seen_${lens.slug}`;
-	const cookieMatch = request.headers.get("cookie")?.match(new RegExp(`${cookieName}=([^;]+)`));
-	const lastSeenIso = cookieMatch ? decodeURIComponent(cookieMatch[1]) : null;
+	const lastSeenIso = seenCookieValue(request, lens.slug);
 
 	const ngramHits = await getRecentNgramHits(db, watches.map((w) => w.id));
 	const hitsByWatch = new Map<string, NgramHit[]>();
@@ -162,7 +161,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 			slug: lens.slug,
 			name: lens.name,
 			description: lens.description,
-			flag: flagEmoji(countryByFips(lens.countryFips ?? "")?.iso2),
+			flag: lensFlag(lens.countryFips),
 		},
 		watches: built.map((b) => ({
 			id: b.view.id,
@@ -206,11 +205,21 @@ export async function action({ request, context }: LoaderFunctionArgs) {
 		if (timespan && !isValidTimespan(timespan)) {
 			return new Response("invalid timespan", { status: 400 });
 		}
-		await addWatch(db, formData.get("lensId")!.toString(), {
+		const watch = {
+			id: "pending",
+			lensId: formData.get("lensId")!.toString(),
 			label: formData.get("label")!.toString() || terms[0],
 			terms,
 			timespan,
-		});
+		};
+		try {
+			compileWatchQuery(watch);
+		} catch (error) {
+			return new Response(error instanceof Error ? error.message : "invalid watch", {
+				status: 400,
+			});
+		}
+		await addWatch(db, watch.lensId, watch);
 	}
 
 	return null;
@@ -356,9 +365,7 @@ export default function LensPage() {
 
 	// Mark this visit as "seen" after render so the next load can diff.
 	React.useEffect(() => {
-		document.cookie = `${"m_seen_" + lens.slug}=${encodeURIComponent(
-			new Date().toISOString(),
-		)}; path=/; max-age=2592000; samesite=lax`;
+		document.cookie = seenCookieWrite(lens.slug);
 	}, [lens.slug]);
 
 	return (

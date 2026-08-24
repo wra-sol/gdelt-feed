@@ -4,7 +4,6 @@ const NAV_ITEMS = [
 	{ to: "/", label: "Home" },
 	{ to: "/search", label: "Search" },
 	{ to: "/lenses", label: "Lenses" },
-	{ to: "/feed", label: "Feed" },
 	{ to: "/articles", label: "Articles" },
 	{ to: "/visualizations", label: "Visualizations" },
 ];

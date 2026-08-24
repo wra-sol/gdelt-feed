@@ -38,14 +38,15 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 
 	const items = new Map<string, { title: string; link: string; source: string; date?: string; watch: string }>();
 
-	for (const watch of watches) {
-		const cached = await getCachedArticles(db, watch.id);
-		for (const article of cached?.articles ?? []) {
+	const cachedLists = await Promise.all(watches.map((watch) => getCachedArticles(db, watch.id)));
+	for (const [i, watch] of watches.entries()) {
+		const query = compileWatchQuery(watch);
+		for (const article of cachedLists[i]?.articles ?? []) {
 			if (!article.url || items.has(article.url)) continue;
 			items.set(article.url, {
 				title: article.title,
 				link: article.url,
-				source: `${article.domain ?? "unknown"} · ${compileWatchQuery(watch)}`,
+				source: `${article.domain ?? "unknown"} · ${query}`,
 				date: seenToRfc822(article.seendate),
 				watch: watch.label,
 			});

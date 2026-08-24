@@ -4,7 +4,7 @@
 
 `wra-sol/gdelt-feed` is being revived into **Meridian** — a region-first *lens over the world's news*: pick a place, see what the global press is saying about it, watch tone/volume trends, get change alerts via pulse + RSS. Same free keyless GDELT APIs, restructured product.
 
-**Decided architecture:** Cloudflare Workers SSR (RR7 Cloudflare adapter) + D1 storage replacing PGlite. Public reads, Access-gated writes, RSS unauthenticated. Repo cloned locally 2026-08-23; typecheck ✓ build ✓ (with red-flag findings below). Baseline verified; Epic 1 (infra revival) is next.
+**Decided architecture:** Cloudflare Workers SSR (RR8 Cloudflare adapter) + D1 storage replacing PGlite. Public reads, Access-gated writes, RSS unauthenticated. Repo cloned locally 2026-08-23; typecheck ✓ build ✓ (with red-flag findings below). Baseline verified; Epic 1 (infra revival) is next.
 
 **Status:** Epic 0 complete except applying this doc. Roadmap §Roadmap. Decision log §Decisions. Do not deviate from decided architecture without updating the file.
 
@@ -103,7 +103,7 @@ npm run typecheck && npm run build  # both green at baseline
 
 ## Decided deployment (replaces all legacy paths)
 
-**Cloudflare Workers SSR** via RR7 Cloudflare adapter (`@react-router/cloudflare` + `@cloudflare/vite-plugin`, wrangler 4.x new-style config). `prerender: false`. Storage = **D1**: `lenses`, `watches`, `articles_cache` (shared cross-visitor TTL cache). Delete `wrangler.toml`, `Dockerfile`, `server.js`. Writes are gated by CF Access JWT; reads + RSS public. **RSS_TOKEN secret is set on the worker** (value in operator's local notes; regenerate via `npx wrangler secret put RSS_TOKEN`). `ACCESS_GATE_ENABLED` intentionally left empty until the Zero-Trust Access application covering mutation paths exists at the edge — flipping it before that locks ALL writes out. Node-crypto MD5 → Web Crypto (or `nodejs_compat`). Subrequest budget: cap watches/lens ≈20 (free tier = 50 subrequests/request).
+**Cloudflare Workers SSR** via RR8 Cloudflare adapter (`@react-router/cloudflare` + `@cloudflare/vite-plugin`, wrangler 4.x new-style config). `prerender: false`. Storage = **D1**: `lenses`, `watches`, `article_cache` (shared cross-visitor TTL cache), `ngram_articles` (90d retention, cron-pruned). wrangler.toml/Dockerfile/server.js deleted. Writes are gated by CF Access JWT (app-side verification: RS256 via team JWKS + exp + aud, fail-closed; dormant until ACCESS_GATE_ENABLED="true" + ACCESS_TEAM_DOMAIN/ACCESS_AUD set). Reads + RSS public. **RSS_TOKEN secret is set on the worker** (value in operator's local notes; regenerate via `npx wrangler secret put RSS_TOKEN`). Subrequest budget: cap watches/lens ≈20 (free tier = 50 subrequests/request).
 
 Rejected alternatives (for the record): static Pages (breaks loaders/actions/search), node SSR react-router-serve (no server bundle even emitted today; hosting cost). Under Workers, GDELT sees CF egress either way — mitigated by shared D1 cache.
 
@@ -158,12 +158,12 @@ New gotcha: under workers-types, `Response.json()` returns `unknown` (not any) �
 2. GEO endpoint flaky (404s) — always degrade to DOC path; never block render on GEO.
 3. FIPS≠ISO; names vary — normalize once, early.
 4. Mode-specific response shapes everywhere (DOC timelines, GEO feeds) — parse per-mode, type everything.
-5. PGlite currently ships 12.9MB WASM to browsers — gone after E1.6; don't reintroduce client-side DB imports.
-6. `vite.config` outDir is dead config; trust actual build dirs.
-7. Empty/small-region results are coverage bias — copy accordingly.
-8. openapi.yaml field names don't match live JSON; types/gdelt.ts does.
-9. RSS URLs must work unauthenticated — keep them off the Access gate.
-10. Keep GDELT attribution footer on every surface (ToS hygiene).
+5. PGlite used to ship 12.9MB WASM to browsers — gone since E1.6; don't reintroduce client-side DB imports.
+6. Empty/small-region results are coverage bias — copy accordingly.
+7. openapi.yaml field names don't match live JSON; types/gdelt.ts does.
+8. RSS URLs must work unauthenticated — keep them off the Access gate.
+9. Keep GDELT attribution footer on every surface (ToS hygiene).
+10. Watch queries are validated loud at write time (compileWatchQuery throws >1000 chars) — never reintroduce silent clipping.
 
 ## Verification checklist (next session)
 
@@ -180,14 +180,15 @@ New gotcha: under workers-types, `Response.json()` returns `unknown` (not any) �
 
 Deep modules landed (commits a5a8a1b, 7b3f043): **Coverage** (`services/coverage.ts` — the one seam for cache→fetch→fallback; feed + lens consume it), **Pulse** (`lib/pulse.ts` — pure novelty computation), **ngramScan** (`services/ngramScan.ts` — pure quadgram matcher with token-edge boundaries + full provenance; ingest is thin I/O over it). Micro-modules single-sourced: `lib/date` (parse/format/rfc822), `lib/grouping`, `data/countries` flags. Vitest harness: `npm test`, 21 tests. Fixed en route: root ErrorBoundary prop bug, feed edit-duplicates-columns bug, RSS timing-safe compare, public refresh amplification gated.
 
-**Not done (deliberate):** C5 legacy-columns retirement (Speculative — pending confirmation nothing external uses /feed). CONTEXT.md still absent — create when domain terms next crystallize. Remaining hazard: none known from the review strip.
+**Not done (deliberate):** CONTEXT.md still absent — create when domain terms next crystallize. C5 legacy-columns retirement executed 2026-08-24 (`/feed` route + `columnsDb.ts` deleted; data lives on via migration 0002's auto-adoption into the `demo` lens). Remaining hazard: none known from the review strip.
 
 ## Ship state (2026-08-24)
 
-- **Public**: pushed to GitHub `wra-sol/gdelt-feed` @ `7cd478c`+; repo description/homepage/topics set; CI green (`.github/workflows/ci.yml`, actions v5).
-- **Live**: https://meridian-news-lens.narfin.workers.dev — all surfaces 200; cron ingesting (~45 min-files/day, 1,200+ articles accumulated).
-- **UX audit** (external session): all six findings fixed in `7cd478c` — ConfirmDialog replaces window.confirm (feed+lens), 44px labeled icon buttons, inline loading indicator, domain-text links, explanatory empty states, search totalResults + throttle-degradation.
-- **Remaining manual step**: create the Cloudflare Zero-Trust Access application (dashboard — needs Access scopes we don't hold), then set `ACCESS_GATE_ENABLED="true"` var. Until then all writes are open. RSS_TOKEN secret already set.
+- **Public**: pushed to GitHub `wra-sol/gdelt-feed`; repo description/homepage/topics set; CI green and now runs `npm test` (typecheck + test + build + wrangler dry-run).
+- **Live**: https://meridian-news-lens.narfin.workers.dev — all surfaces 200; cron ingesting (~45 min-files/day) with 90d ngram retention.
+- **UX audit** (external session): all six findings fixed in `7cd478c`.
+- **Thermo-nuclear quality pass** (`946d11a` + follow-up): enforced the force-refresh gate (Access-JWT checked, no double-fetch), fixed the feed staleness flag so the throttle banner renders, single-flight SWR revalidation, atomic deletes (`db.batch`) with cache/ngram cleanup, real Access JWT verification (JWKS/exp/aud, fail-closed), whitelist-parsed DB/form unions, hydration-safe dates everywhere, dead deps/ui/config pruned for real. **C5 executed: `/feed` retired** — route, nav link, and `columnsDb.ts` deleted; legacy columns had already been auto-adopted into the `demo` lens by migration 0002.
+- **Remaining manual step**: create the Cloudflare Zero-Trust Access application (dashboard — needs Access scopes we don't hold), then set `ACCESS_TEAM_DOMAIN` + `ACCESS_AUD` vars and `ACCESS_GATE_ENABLED="true"`. Until then all writes are open. RSS_TOKEN secret already set.
 
 ## Parked backlog
 

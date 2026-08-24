@@ -1,6 +1,6 @@
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { getLenses } from "~/services/lensDb";
-import { countryByFips, flagEmoji } from "~/data/countries";
+import { lensFlag } from "~/data/countries";
 import { getCloudflare } from "~/lib/cloudflare-context";
 
 interface LensCard {
@@ -17,7 +17,7 @@ export async function loader({ context }: LoaderFunctionArgs) {
 
 	const cards: LensCard[] = lenses.map((lens) => ({
 		...lens,
-		flag: flagEmoji(countryByFips(lens.countryFips ?? "")?.iso2),
+		flag: lensFlag(lens.countryFips),
 	}));
 
 	return { lenses: cards };

@@ -55,10 +55,6 @@ export default [
             file: "./routes/visualizations/visualization.tsx"
           }
         ]
-      },
-      {
-        path: "feed",
-        file: "./routes/feed.tsx",
       }
     ]
   }

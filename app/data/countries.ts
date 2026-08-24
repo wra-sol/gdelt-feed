@@ -288,3 +288,8 @@ export function flagEmoji(iso2?: string): string {
 	if (!iso2 || !/^[A-Z]{2}$/.test(iso2)) return "";
 	return String.fromCodePoint(...[...iso2].map((ch) => 127397 + ch.charCodeAt(0)));
 }
+
+/** Flag for a lens's country FIPS (empty string when unset/unknown). */
+export function lensFlag(countryFips?: string): string {
+	return flagEmoji(countryByFips(countryFips ?? "")?.iso2);
+}
