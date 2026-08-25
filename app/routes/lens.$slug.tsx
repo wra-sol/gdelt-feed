@@ -244,7 +244,7 @@ function WatchCard({
 	onAskDelete: (w: { id: string; label: string }) => void;
 }) {
 	return (
-		<div className="relative flex max-h-[80vh] w-[360px] flex-shrink-0 flex-grow-0 flex-col rounded-xl border border-border bg-card">
+		<div className="relative flex max-h-[80vh] w-[85vw] flex-shrink-0 snap-start flex-col rounded-xl border border-border bg-card sm:w-[360px]">
 			<div className="sticky top-0 z-10 rounded-t-xl border-b border-border bg-card/95 p-4 backdrop-blur">
 				<div className="mb-1 flex items-start justify-between gap-2">
 					<h3 className="font-heading font-semibold text-foreground">{watch.label}</h3>
@@ -329,7 +329,7 @@ export default function LensPage() {
 	}, [lens.slug]);
 
 	return (
-		<div className="mx-auto p-4">
+		<div className="mx-auto max-w-6xl p-4">
 			{/* React 19 hoists head links rendered anywhere. Plain URL: when the
 			    Access gate is on, feeds are shared as tokened URLs instead —
 			    never embed RSS_TOKEN in page HTML. */}
@@ -451,10 +451,15 @@ export default function LensPage() {
 					</Button>
 				</Empty>
 			) : (
-				<div className="flex space-x-4 overflow-x-auto pb-4">
-					{watches.map((w) => (
-						<WatchCard key={w.id} watch={w} canEdit onAskDelete={setPendingDelete} />
-					))}
+				<div className="relative">
+					<div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4">
+						{watches.map((w) => (
+							<WatchCard key={w.id} watch={w} canEdit onAskDelete={setPendingDelete} />
+						))}
+					</div>
+					{/* Edge fades hint the scroll without stealing clicks (HIG deference). */}
+					<div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-background to-transparent" />
+					<div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-background to-transparent" />
 				</div>
 			)}
 

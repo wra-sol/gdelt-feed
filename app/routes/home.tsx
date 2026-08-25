@@ -1,8 +1,17 @@
-import type { MetaFunction } from "react-router";
-import { Link } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { Link, useLoaderData } from "react-router";
 import { buttonVariants } from "~/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { getLenses } from "~/services/lensDb";
+import { lensFlag } from "~/data/countries";
+import { getCloudflare } from "~/lib/cloudflare-context";
 import { cn } from "~/lib/utils";
+
+export async function loader({ context }: LoaderFunctionArgs) {
+	const db = getCloudflare(context).env.DB;
+	const lenses = await getLenses(db);
+	return { lenses: lenses.map((lens) => ({ ...lens, flag: lensFlag(lens.countryFips) })) };
+}
 
 export const meta: MetaFunction = () => [
 	{ title: "Meridian — a lens over the world's press" },
@@ -55,6 +64,7 @@ function MeridianMark({ size = 56 }: { size?: number }) {
 }
 
 export default function Home() {
+	const { lenses } = useLoaderData<typeof loader>();
 	return (
 		<div className="mx-auto max-w-5xl px-6 py-14">
 			<div className="flex items-center gap-4">
@@ -100,6 +110,28 @@ export default function Home() {
 					Canada RSS feed
 				</a>
 			</div>
+
+			{lenses.length > 0 && (
+				<div className="mt-10">
+					<p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">
+						Start with a place
+					</p>
+					<div className="mt-3 flex flex-wrap gap-2">
+						{lenses.map((lens) => (
+							<Link
+								key={lens.id}
+								prefetch="intent"
+								viewTransition
+								to={`/lens/${lens.slug}`}
+								className="flex min-h-11 items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm transition-colors hover:border-primary/60 hover:text-primary"
+							>
+								{lens.flag && <span aria-hidden>{lens.flag}</span>}
+								{lens.name}
+							</Link>
+						))}
+					</div>
+				</div>
+			)}
 
 			<div className="mt-16 grid grid-cols-1 gap-5 md:grid-cols-2">
 				{capabilities.map((c) => (

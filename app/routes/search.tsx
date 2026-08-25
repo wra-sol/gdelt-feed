@@ -23,7 +23,16 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "~/components/ui/empty";
-import { SearchXIcon, TimerOffIcon } from "lucide-react";
+import { SearchIcon, SearchXIcon, TimerOffIcon } from "lucide-react";
+import { Link } from "react-router";
+import { buttonVariants } from "~/components/ui/button";
+import { cn } from "~/lib/utils";
+
+const SAMPLE_QUERIES = [
+  '"climate change"',
+  'inflation sourcelang:english',
+  '"artificial intelligence"',
+];
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
@@ -126,9 +135,30 @@ export default function Search() {
           <SearchResults resultsPromise={resultsPromise} query={query} />
         </React.Suspense>
       ) : (
-        <p className="mt-10 text-sm text-muted-foreground">
-          Start with a topic — results stream in as GDELT returns them.
-        </p>
+        <Empty className="mt-8 rounded-xl border border-dashed">
+          <EmptyHeader>
+            <EmptyMedia>
+              <SearchIcon aria-hidden />
+            </EmptyMedia>
+            <EmptyTitle>Start with a topic</EmptyTitle>
+            <EmptyDescription>
+              One English query matches machine-translated press across 65+
+              languages. Results stream in as GDELT returns them.
+            </EmptyDescription>
+          </EmptyHeader>
+          <div className="flex flex-wrap justify-center gap-2">
+            {SAMPLE_QUERIES.map((q) => (
+              <Link
+                key={q}
+                to={`/search?q=${encodeURIComponent(q)}`}
+                prefetch="intent"
+                className={cn(buttonVariants({ variant: "outline", size: "touch" }))}
+              >
+                {q}
+              </Link>
+            ))}
+          </div>
+        </Empty>
       )}
     </div>
   );
