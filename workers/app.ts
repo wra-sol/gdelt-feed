@@ -16,25 +16,23 @@ export default {
 	async scheduled(_controller, env, _ctx) {
 		const db = env.DB;
 
-		// Keep DOC coverage warm on a schedule so visitors rarely trigger
-		// upstream fetches themselves (throttle safety). Sequential loop =
-		// paced automatically by gdeltApi's MIN_INTERVAL gate.
+		// One aggregate read feeds both jobs (decision: Lens-with-Watches seam).
+		const { getAllWatches } = await import("~/services/lensDb");
+		const watches = await getAllWatches(db);
+
+		// Keep DOC coverage warm so visitors rarely trigger upstream fetches
+		// themselves. warmAllCoverage isolates poisoned rows per Watch and
+		// the upstream gate paces the sequential loop.
 		try {
-			const { getAllWatches } = await import("~/services/lensDb");
-			const { watchRef } = await import("~/services/watchView");
-			const { revalidateCoverage } = await import("~/services/coverage");
-			for (const watch of await getAllWatches(db)) {
-				const coverage = await revalidateCoverage(db, watchRef(watch));
-				console.log("[coverage] warmed", watch.id, coverage.source);
-			}
+			const { warmAllCoverage } = await import("~/services/coverage");
+			const summary = await warmAllCoverage(db, watches);
+			console.log("[coverage] warmed", summary);
 		} catch (error) {
 			console.error("[coverage] warm failed:", error);
 		}
 
 		if ((env.NGRAMS_ENABLED ?? "").toLowerCase() !== "true") return;
-		const { getAllWatches: allWatches } = await import("~/services/lensDb");
 		const { ingestLatestMinute, pruneNgramHits } = await import("~/services/ngrams");
-		const watches = await allWatches(db);
 
 		try {
 			const result = await ingestLatestMinute(db, watches);

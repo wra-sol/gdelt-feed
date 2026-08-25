@@ -2,6 +2,8 @@ import { getCachedArticles, cacheArticles } from "~/services/articleCache";
 import { GdeltApi } from "~/services/gdeltApi";
 import type { SortOrder } from "~/services/gdeltApi";
 import type { Article } from "~/types/gdelt";
+import type { WatchDef } from "~/services/watchEngine";
+import { watchRef } from "~/services/watchView";
 
 /**
  * The Coverage module — the one seam answering "what is the current coverage
@@ -112,4 +114,38 @@ export async function swr(
 	const immediate = await getCoverageCached(db, watch);
 	const fresh = immediate.stale ? revalidateCoverage(db, watch) : null;
 	return { immediate, fresh };
+}
+
+export interface CoverageWarmSummary {
+	warmed: number;
+	degraded: number;
+	failed: number;
+}
+
+/**
+ * Warm every Watch's Coverage on a schedule so visitors rarely trigger
+ * upstream fetches themselves (throttle safety — the cron adapter runs this
+ * sequentially; gdeltApi's upstream gate paces the loop automatically).
+ *
+ * Fault-isolated per Watch: `watchRef` compiles the Watch query and throws
+ * loudly on poisoned rows (CONTEXT.md watch-query invariant) — one bad row
+ * must skip one Watch, not starve every Watch after it. Callers pass the
+ * Watch list; this module never reaches into storage aggregates.
+ */
+export async function warmAllCoverage(
+	db: D1Database,
+	watches: WatchDef[],
+): Promise<CoverageWarmSummary> {
+	const summary: CoverageWarmSummary = { warmed: 0, degraded: 0, failed: 0 };
+	for (const watch of watches) {
+		try {
+			const coverage = await revalidateCoverage(db, watchRef(watch));
+			if (coverage.stale) summary.degraded++;
+			else summary.warmed++;
+		} catch (error) {
+			console.error(`[coverage] warm skipped ${watch.id}:`, error);
+			summary.failed++;
+		}
+	}
+	return summary;
 }

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { swr, revalidateCoverage, type Coverage, type WatchRef } from "./coverage";
+import { swr, revalidateCoverage, warmAllCoverage, type Coverage, type WatchRef } from "./coverage";
+import type { WatchDef } from "./watchEngine";
 
 const searchArticles = vi.fn();
 vi.mock("~/services/gdeltApi", () => ({
@@ -144,5 +145,51 @@ describe("revalidateCoverage()", () => {
 
 		expect(searchArticles).toHaveBeenCalledTimes(1);
 		expect(r1.articles).toEqual(r2.articles);
+	});
+});
+
+describe("warmAllCoverage()", () => {
+	const def = (id: string, terms: string[] = ["topic"]): WatchDef => ({
+		id,
+		lensId: "l1",
+		label: id,
+		terms,
+	});
+
+	beforeEach(() => {
+		searchArticles.mockResolvedValue({ articles: [article("https://warm.example/1")] });
+	});
+
+	it("warms every healthy watch and reports the summary", async () => {
+		const table: CacheTable = new Map();
+		const summary = await warmAllCoverage(fakeDb(table), [
+			def("w-a"),
+			def("w-b"),
+			def("w-c"),
+		]);
+
+		expect(summary).toEqual({ warmed: 3, degraded: 0, failed: 0 });
+		expect(table.size).toBe(3);
+	});
+
+	it("one poisoned watch fails alone — the rest still warm", async () => {
+		const table: CacheTable = new Map();
+		const summary = await warmAllCoverage(fakeDb(table), [
+			def("w-good-1"),
+			def("w-poisoned", []), // empty terms → compileWatchQuery throws
+			def("w-good-2"),
+		]);
+
+		expect(summary.failed).toBe(1);
+		expect(summary.warmed).toBe(2);
+		expect(table.has("w-good-1")).toBe(true);
+		expect(table.has("w-good-2")).toBe(true);
+		expect(table.has("w-poisoned")).toBe(false);
+	});
+
+	it("counts throttle-degraded revalidations as degraded, not warmed", async () => {
+		searchArticles.mockRejectedValue(new Error("GDELT down"));
+		const summary = await warmAllCoverage(fakeDb(new Map()), [def("w-x"), def("w-y")]);
+		expect(summary).toEqual({ warmed: 0, degraded: 2, failed: 0 });
 	});
 });

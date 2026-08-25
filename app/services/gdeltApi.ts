@@ -1,4 +1,5 @@
 import type { Article } from '../types/gdelt';
+import { createUpstreamGate } from './upstreamGate';
 
 /**
  * Only two DOC modes are used: artlist (coverage) and timelinevol (trends).
@@ -50,19 +51,12 @@ const BROWSER_UA =
 const FETCH_TIMEOUT_MS = 20_000;
 
 /**
- * Isolate-level upstream pacing (HANDOFF: GDELT wants ≥5s between calls and
- * punishes bursts with minutes-long cooldowns). Two gates, checked before any
- * network I/O:
- * - MIN_INTERVAL_MS: serialize calls with spacing so parallel visitors don't
- *   burst. The first caller passes immediately; the rest queue.
- * - cooldownUntil: after a throttle signal, fail FAST for a window instead of
- *   paying timeout+failover per queued visitor — revalidateCoverage turns
- *   those into instant honest stale-cache responses.
+ * Isolate-wide upstream budget — spacing between calls plus fast-fail
+ * cooldown after throttle signals. The policy lives in the upstreamGate
+ * module (testable through its interface with a fake clock); GdeltApi
+ * composes it and translates its rejection into GdeltRateLimitError.
  */
-const MIN_INTERVAL_MS = 5_500;
-const THROTTLE_COOLDOWN_MS = 30_000;
-let nextAllowedAt = 0;
-let cooldownUntil = 0;
+const gate = createUpstreamGate();
 
 /** GDELT's throttle arrives as HTTP 200 plain text, not a 429. */
 const THROTTLE_MARKERS = [
@@ -84,15 +78,11 @@ export class GdeltApi {
   }
 
   private static async fetchRaw(params: URLSearchParams): Promise<unknown> {
-    const now = Date.now();
-    if (now < cooldownUntil) {
+    try {
+      await gate.acquire();
+    } catch (error) {
       throw new GdeltRateLimitError('GDELT in throttle cooldown — failing fast');
     }
-    const waitMs = nextAllowedAt - Date.now();
-    if (waitMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-    }
-    nextAllowedAt = Date.now() + MIN_INTERVAL_MS;
 
     let lastError: Error = new Error('GDELT request never attempted');
 
@@ -105,7 +95,7 @@ export class GdeltApi {
         });
 
         if (response.status === 429) {
-          cooldownUntil = Date.now() + THROTTLE_COOLDOWN_MS;
+          gate.markThrottled();
           throw new GdeltRateLimitError();
         }
 
@@ -118,7 +108,7 @@ export class GdeltApi {
         }
         if (rawText !== null) {
           if (this.isThrottleText(rawText)) {
-            cooldownUntil = Date.now() + THROTTLE_COOLDOWN_MS;
+            gate.markThrottled();
             throw new GdeltRateLimitError();
           }
           throw new Error(`Non-JSON response: ${rawText.slice(0, 120)}`);
