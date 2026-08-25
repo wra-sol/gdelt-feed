@@ -1,0 +1,119 @@
+import { describe, expect, it } from "vitest";
+import {
+	applyView,
+	buildContacts,
+	clampSelection,
+	freshnessFraction,
+	matchesView,
+	tierFor,
+	FLAGGED_TONE_THRESHOLD,
+} from "~/lib/consoleModel";
+
+const HOUR = 3600_000;
+const NOW = 1_800_000_000_000;
+
+function source(label: string, groups: { title: string; url: string; seendate?: string; tone?: number }[], ngramUrls: string[] = []) {
+	return {
+		label,
+		displayGroups: groups.map((g) => ({ title: g.title, articles: [g] })),
+		ngramUrls,
+	};
+}
+
+describe("buildContacts", () => {
+	it("flattens watches to a recency-sorted list with channel metadata", () => {
+		const contacts = buildContacts(
+			[
+				source("Politics", [
+					{ title: "Older", url: "u1", seendate: "2026-08-24T10:00:00Z" },
+					{ title: "Newer", url: "u2", seendate: "2026-08-24T12:00:00Z" },
+				]),
+				source("Economy", [{ title: "Mid", url: "u3", seendate: "2026-08-24T11:00:00Z", tone: -7 }], ["u3"]),
+			],
+			new Set(),
+		);
+		expect(contacts.map((c) => c.title)).toEqual(["Newer", "Mid", "Older"]);
+		expect(contacts[0].channelLabel).toBe("Politics");
+		expect(contacts[1].channel).toBe(1);
+		expect(contacts[1].ngram).toBe(true);
+		expect(contacts[1].tone).toBe(-7);
+	});
+
+	it("counts extra group members and honours the read set", () => {
+		const contacts = buildContacts(
+			[
+				{
+					label: "W",
+					displayGroups: [
+						{ title: "T", articles: [{ url: "u1", title: "T", seendate: "2026-08-24T10:00:00Z" }, { url: "dup", title: "T" }] },
+					],
+					ngramUrls: [],
+				},
+			],
+			new Set(["u1"]),
+		);
+		expect(contacts[0].moreInGroup).toBe(1);
+		expect(contacts[0].read).toBe(true);
+	});
+
+	it("skips empty groups and tolerates missing timestamps", () => {
+		const contacts = buildContacts(
+			[{ label: "W", displayGroups: [{ title: "T", articles: [] }, { title: "U", articles: [{ url: "u9", title: "U" }] }], ngramUrls: [] }],
+			new Set(),
+		);
+		expect(contacts.length).toBe(1);
+		expect(contacts[0].seenTs).toBeNull();
+	});
+});
+
+describe("applyView / matchesView", () => {
+	const contacts = buildContacts(
+		[
+			source("W", [
+				{ title: "fresh unread", url: "a", seendate: "2026-08-24T12:00:00Z" },
+				{ title: "ngram only", url: "b", tone: 1 },
+			], ["b"]),
+			source("V", [{ title: "negative", url: "c", tone: FLAGGED_TONE_THRESHOLD }]),
+		],
+		new Set(["a"]),
+	);
+
+	it("NEW is exactly the unread set", () => {
+		expect(applyView(contacts, "NEW").map((c) => c.url)).toEqual(["b", "c"]);
+	});
+
+	it("NGRAM flags provenance without implying unread", () => {
+		expect(matchesView(contacts[1], "NGRAM")).toBe(true);
+		expect(matchesView(contacts[1], "NEW")).toBe(true); // b unread
+		expect(matchesView(contacts[0], "NGRAM")).toBe(false);
+	});
+
+	it("FLAGGED uses the shared negative-tone policy boundary inclusive", () => {
+		expect(applyView(contacts, "FLAGGED").map((c) => c.url)).toEqual(["c"]);
+	});
+});
+
+describe("decay vocabulary", () => {
+	it("tier boundaries sit exactly at HOT and WARM hours", () => {
+		const seen = NOW;
+		expect(tierFor(seen - (6 * HOUR - 1), NOW)).toBe("hot");
+		expect(tierFor(seen - 6 * HOUR, NOW)).toBe("warm");
+		expect(tierFor(seen - 24 * HOUR, NOW)).toBe("old");
+	});
+
+	it("null timestamps decay to old and fraction clamps to bounds", () => {
+		expect(tierFor(null, NOW)).toBe("old");
+		expect(freshnessFraction(null, NOW, 72)).toBe(0);
+		expect(freshnessFraction(NOW, NOW, 72)).toBe(1);
+		expect(freshnessFraction(NOW - 999 * HOUR, NOW, 72)).toBe(0);
+	});
+});
+
+describe("clampSelection", () => {
+	it("always names a row of the shown slice", () => {
+		expect(clampSelection(3, 5)).toBe(3);
+		expect(clampSelection(9, 5)).toBe(4);
+		expect(clampSelection(-2, 5)).toBe(0);
+		expect(clampSelection(0, 0)).toBe(0);
+	});
+});

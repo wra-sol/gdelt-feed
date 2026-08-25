@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { GdeltApi } from "./gdeltApi";
+import { buildParams } from "./gdeltApi";
 
-describe("GdeltApi.buildParams", () => {
+describe("buildParams", () => {
 	it("applies artlist/json defaults and DateDesc sort", () => {
-		const p = GdeltApi.buildParams({ query: "climate change" });
+		const p = buildParams({ query: "climate change" });
 		expect(p.get("query")).toBe("climate change");
 		expect(p.get("mode")).toBe("artlist");
 		expect(p.get("format")).toBe("json");
@@ -13,7 +13,7 @@ describe("GdeltApi.buildParams", () => {
 	});
 
 	it("appends timespan only when set", () => {
-		const p = GdeltApi.buildParams({ query: "inflation", timespan: "7d" });
+		const p = buildParams({ query: "inflation", timespan: "7d" });
 		expect(p.get("timespan")).toBe("7d");
 	});
 
@@ -24,18 +24,18 @@ describe("GdeltApi.buildParams", () => {
 		["valid query", "forever"], // invalid timespan word
 	])("rejects invalid input %j / %j", (query, timespan) => {
 		expect(() =>
-			GdeltApi.buildParams({ query: query as string, timespan: timespan as string }),
+			buildParams({ query: query as string, timespan: timespan as string }),
 		).toThrow();
 	});
 
 	it("enforces maxrecords bounds", () => {
-		expect(() => GdeltApi.buildParams({ query: "ok query", maxrecords: 0 })).toThrow();
-		expect(() => GdeltApi.buildParams({ query: "ok query", maxrecords: 251 })).toThrow();
-		expect(GdeltApi.buildParams({ query: "ok query", maxrecords: 250 }).get("maxrecords")).toBe("250");
+		expect(() => buildParams({ query: "ok query", maxrecords: 0 })).toThrow();
+		expect(() => buildParams({ query: "ok query", maxrecords: 251 })).toThrow();
+		expect(buildParams({ query: "ok query", maxrecords: 250 }).get("maxrecords")).toBe("250");
 	});
 
 	it("accepts timelinevol mode", () => {
-		const p = GdeltApi.buildParams({ query: "ok query", mode: "timelinevol" });
+		const p = buildParams({ query: "ok query", mode: "timelinevol" });
 		expect(p.get("mode")).toBe("timelinevol");
 	});
 });

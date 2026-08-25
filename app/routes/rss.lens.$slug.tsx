@@ -1,8 +1,7 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { getLensWithWatches } from "~/services/lensDb";
 import { getCoverageCached } from "~/services/coverage";
-import { compileWatchQuery } from "~/services/watchEngine";
-import { watchRef } from "~/services/watchView";
+import { watchRef } from "~/services/watchEngine";
 import { buildRssFeed, RSS_RESPONSE_INIT, type RssFeedItem } from "~/services/rssFeed";
 import { seenToRfc822 } from "~/lib/date";
 import { rssTokenOk } from "~/lib/access";
@@ -30,19 +29,19 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 	const origin = url.origin;
 
 	// Cache-only policy: getCoverageCached never fetches upstream.
+	const refs = watches.map(watchRef);
 	const cachedLists = await Promise.all(
-		watches.map((watch) => getCoverageCached(db, watchRef(watch))),
+		refs.map((ref) => getCoverageCached(db, ref)),
 	);
 
 	const items = new Map<string, RssFeedItem>();
 	for (const [i, watch] of watches.entries()) {
-		const query = compileWatchQuery(watch);
 		for (const article of cachedLists[i]?.articles ?? []) {
 			if (!article.url || items.has(article.url)) continue;
 			items.set(article.url, {
 				title: article.title,
 				link: article.url,
-				description: `Watch: ${watch.label} · Source: ${article.domain ?? "unknown"} · ${query}`,
+				description: `Watch: ${watch.label} · Source: ${article.domain ?? "unknown"} · ${refs[i].query}`,
 				date: seenToRfc822(article.seendate),
 			});
 		}

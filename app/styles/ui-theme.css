@@ -181,3 +181,61 @@
     cursor: pointer;
   }
 }
+
+/*
+ * Scope console — the lens surface as a primary scan instrument. A deliberate
+ * dark instrument panel regardless of app light/dark mode; phosphor green is
+ * reserved for fresh (unread) contacts, amber for degraded sensors.
+ */
+.scope-console {
+  --scope-bg: #070b09;
+  --scope-panel: #0c130f;
+  --scope-panel-2: #111a15;
+  --scope-line: rgba(84, 230, 160, 16%);
+  --scope-grid: rgba(84, 230, 160, 7%);
+  --scope-fg: #d3e9dc;
+  --scope-dim: #82a894;
+  --scope-phos: #46e69b;
+  --scope-hot: #93ffc9;
+  --scope-warn: #ffb454;
+
+  background: var(--scope-bg);
+  color: var(--scope-fg);
+}
+
+.scope-sweep {
+  animation: scope-sweep 6s linear infinite;
+  transform-origin: 100px 100px;
+}
+
+.scope-halo {
+  animation: scope-halo 2.4s ease-out infinite;
+}
+
+@keyframes scope-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes scope-halo {
+  0% {
+    opacity: 85%;
+  }
+  70%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scope-sweep {
+    animation: none;
+    opacity: 35%;
+  }
+
+  .scope-halo {
+    animation: none;
+    opacity: 30%;
+  }
+}

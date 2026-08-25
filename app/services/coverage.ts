@@ -1,9 +1,8 @@
 import { getCachedArticles, cacheArticles } from "~/services/articleCache";
-import { GdeltApi } from "~/services/gdeltApi";
+import { gdeltApi } from "~/services/gdeltApi";
 import type { SortOrder } from "~/services/gdeltApi";
 import type { Article } from "~/types/gdelt";
-import type { WatchDef } from "~/services/watchEngine";
-import { watchRef } from "~/services/watchView";
+import { watchRef, type WatchDef, type WatchRef } from "~/services/watchEngine";
 
 /**
  * The Coverage module — the one seam answering "what is the current coverage
@@ -13,15 +12,6 @@ import { watchRef } from "~/services/watchView";
  * outage degradation to stale cache, maxrecords clamping, provenance.
  * Callers (feed, lens pulse, trends, rss, cron) learn only this interface.
  */
-
-export interface WatchRef {
-	/** Stable id — doubles as the article-cache key. */
-	id: string;
-	query: string;
-	timespan?: string;
-	sort?: SortOrder;
-	maxrecords?: number;
-}
 
 export type CoverageSource = "cache" | "gdelt" | "stale-cache";
 
@@ -77,7 +67,7 @@ export function revalidateCoverage(db: D1Database, watch: WatchRef): Promise<Cov
 async function doRevalidateCoverage(db: D1Database, watch: WatchRef): Promise<Coverage> {
 	const maxrecords = Math.min(Math.max(watch.maxrecords ?? 50, 1), 250);
 	try {
-		const result = await GdeltApi.searchArticles({
+		const result = await gdeltApi.searchArticles({
 			query: watch.query,
 			timespan: watch.timespan,
 			sort: watch.sort,

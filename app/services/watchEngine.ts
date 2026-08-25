@@ -51,3 +51,24 @@ export function compileWatchQuery(watch: WatchDef): string {
 	}
 	return query;
 }
+
+/** A Watch compiled into everything Coverage needs — the one Watch→Coverage adapter. */
+export interface WatchRef {
+	/** Stable id — doubles as the article-cache key. */
+	id: string;
+	query: string;
+	timespan?: string;
+	sort?: SortOrder;
+	maxrecords?: number;
+}
+
+/** Compile once at the edge; carry the query instead of re-compiling downstream. */
+export function watchRef(watch: WatchDef): WatchRef {
+	return {
+		id: watch.id,
+		query: compileWatchQuery(watch),
+		timespan: watch.timespan,
+		sort: watch.sort,
+		maxrecords: watch.maxrecords,
+	};
+}

@@ -1,6 +1,5 @@
 import type { Article } from "~/types/gdelt";
-import { compileWatchQuery, type WatchDef } from "~/services/watchEngine";
-import type { WatchRef } from "~/services/coverage";
+import type { WatchDef } from "~/services/watchEngine";
 import { groupArticlesByTitle, groupKey, type ArticleGroup } from "~/lib/grouping";
 import { isoToSeenDate } from "~/lib/date";
 
@@ -38,17 +37,6 @@ export interface FreshView {
 	stale: boolean;
 	newCount: number;
 	ngramUrls: string[];
-}
-
-/** The one Watch→Coverage adapter: compiles the query, passes policy fields through. */
-export function watchRef(watch: WatchDef): WatchRef {
-	return {
-		id: watch.id,
-		query: compileWatchQuery(watch),
-		timespan: watch.timespan,
-		sort: watch.sort,
-		maxrecords: watch.maxrecords,
-	};
 }
 
 const MAX_GROUPS = 12;

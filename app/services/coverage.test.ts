@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { swr, revalidateCoverage, warmAllCoverage, type Coverage, type WatchRef } from "./coverage";
-import type { WatchDef } from "./watchEngine";
+import { swr, revalidateCoverage, warmAllCoverage, type Coverage } from "./coverage";
+import type { WatchDef, WatchRef } from "./watchEngine";
 
 const searchArticles = vi.fn();
 vi.mock("~/services/gdeltApi", () => ({
-	GdeltApi: { searchArticles: (...args: unknown[]) => searchArticles(...args) },
+	gdeltApi: { searchArticles: (...args: unknown[]) => searchArticles(...args) },
 }));
 
 /** In-memory article_cache standing in for D1 — enough surface for the annex. */

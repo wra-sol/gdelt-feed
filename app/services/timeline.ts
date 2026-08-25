@@ -1,4 +1,4 @@
-import { GdeltApi } from "~/services/gdeltApi";
+import { gdeltApi } from "~/services/gdeltApi";
 
 export interface TimelinePoint {
 	date: string;
@@ -22,7 +22,7 @@ export async function fetchVolumeTimeline(
 	query: string,
 	timespan = "3m",
 ): Promise<TimelinePoint[]> {
-	const raw = (await GdeltApi.volumeTimeline(query, timespan)) as Partial<RawTimelineResponse>;
+	const raw = (await gdeltApi.volumeTimeline(query, timespan)) as Partial<RawTimelineResponse>;
 	const series = raw?.timeline?.[0]?.data?.[0]?.values;
 
 	if (!Array.isArray(series)) return [];

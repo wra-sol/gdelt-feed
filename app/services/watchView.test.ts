@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildWatchView, watchRef, type NgramHit } from "./watchView";
+import { buildWatchView, type NgramHit } from "./watchView";
+import { watchRef } from "./watchEngine";
 import type { WatchDef } from "./watchEngine";
 import type { Article } from "~/types/gdelt";
 import { parseSeenDate } from "~/lib/date";

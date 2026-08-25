@@ -10,7 +10,7 @@ import {
 } from "react-router";
 import * as React from "react";
 import type { Article } from '../types/gdelt';
-import { GdeltApi } from "../services/gdeltApi";
+import { gdeltApi } from "../services/gdeltApi";
 import { groupArticlesByTitle } from "~/lib/grouping";
 import { formatSeenUtc } from "~/lib/date";
 import { Button } from "~/components/ui/button";
@@ -41,7 +41,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return { query: "", resultsPromise: null };
   }
   // Deferred: the form paints instantly; results stream in via Suspense.
-  const resultsPromise = GdeltApi.searchArticles({ query })
+  const resultsPromise = gdeltApi.searchArticles({ query })
     .then((results) => ({
       articles: results.articles,
       totalResults: results.totalResults,

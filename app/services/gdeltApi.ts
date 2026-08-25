@@ -1,5 +1,5 @@
 import type { Article } from '../types/gdelt';
-import { createUpstreamGate } from './upstreamGate';
+import { createUpstreamGate, type UpstreamGate } from './upstreamGate';
 
 /**
  * Only two DOC modes are used: artlist (coverage) and timelinevol (trends).
@@ -51,16 +51,11 @@ const BROWSER_UA =
 const FETCH_TIMEOUT_MS = 20_000;
 
 /**
- * Isolate-wide upstream budget — spacing between calls plus fast-fail
- * cooldown after throttle signals. The policy lives in the upstreamGate
- * module (testable through its interface with a fake clock); GdeltApi
- * composes it and translates its rejection into GdeltRateLimitError.
+ * GDELT's throttle arrives as HTTP 200 plain text, not a 429.
+ * Markers are lowercase — matching lowercases the response prefix first.
  */
-const gate = createUpstreamGate();
-
-/** GDELT's throttle arrives as HTTP 200 plain text, not a 429. */
-const THROTTLE_MARKERS = [
-  'Please limit requests to one every 5 seconds',
+export const THROTTLE_MARKERS = [
+  'please limit requests to one every 5 seconds',
   'rate limit',
 ];
 
@@ -71,16 +66,67 @@ export class GdeltRateLimitError extends Error {
   }
 }
 
-export class GdeltApi {
-  private static isThrottleText(text: string): boolean {
-    const lower = text.slice(0, 400).toLowerCase();
-    return THROTTLE_MARKERS.some((m) => lower.includes(m));
+export function buildParams({
+  query,
+  mode = 'artlist',
+  timespan,
+  maxrecords = 75,
+  sort = 'DateDesc',
+}: GdeltSearchParams): URLSearchParams {
+  if (query.length < 3 || query.length > 1000) {
+    throw new Error('Query must be between 3 and 1000 characters');
   }
 
-  private static async fetchRaw(params: URLSearchParams): Promise<unknown> {
+  if (timespan && !isValidTimespan(timespan)) {
+    throw new Error('Invalid timespan format');
+  }
+
+  if (maxrecords < 1 || maxrecords > 250) {
+    throw new Error('maxrecords must be between 1 and 250');
+  }
+
+  const params = new URLSearchParams({
+    query,
+    mode,
+    format: 'json',
+    maxrecords: maxrecords.toString(),
+    sort,
+  });
+
+  if (timespan) params.append('timespan', timespan);
+  return params;
+}
+
+function isThrottleText(text: string): boolean {
+  const lower = text.slice(0, 400).toLowerCase();
+  return THROTTLE_MARKERS.some((m) => lower.includes(m));
+}
+
+/**
+ * The upstream seam: gate + transport are injected, so the failure modes
+ * that matter (HTTP-200 throttle text, host failover, fast-fail cooldown)
+ * are testable through the same interface callers use.
+ */
+export interface GdeltApiDeps {
+  gate?: UpstreamGate;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}
+
+export type GdeltApiClient = {
+  searchArticles(params: GdeltSearchParams): Promise<GdeltResponse>;
+  volumeTimeline(query: string, timespan?: string): Promise<unknown>;
+};
+
+export function createGdeltApi(deps: GdeltApiDeps = {}): GdeltApiClient {
+  const gate = deps.gate ?? createUpstreamGate();
+  const doFetch = deps.fetchImpl ?? fetch.bind(globalThis);
+  const timeoutMs = deps.timeoutMs ?? FETCH_TIMEOUT_MS;
+
+  async function fetchRaw(params: URLSearchParams): Promise<unknown> {
     try {
       await gate.acquire();
-    } catch (error) {
+    } catch {
       throw new GdeltRateLimitError('GDELT in throttle cooldown — failing fast');
     }
 
@@ -89,9 +135,9 @@ export class GdeltApi {
     for (const host of GDELT_HOSTS) {
       const url = `${host}/api/v2/doc/doc?${params.toString()}`;
       try {
-        const response = await fetch(url, {
+        const response = await doFetch(url, {
           headers: { 'User-Agent': BROWSER_UA },
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+          signal: AbortSignal.timeout(timeoutMs),
         });
 
         if (response.status === 429) {
@@ -107,7 +153,7 @@ export class GdeltApi {
           throw new Error(`HTTP ${response.status} from ${host}`);
         }
         if (rawText !== null) {
-          if (this.isThrottleText(rawText)) {
+          if (isThrottleText(rawText)) {
             gate.markThrottled();
             throw new GdeltRateLimitError();
           }
@@ -125,59 +171,33 @@ export class GdeltApi {
     throw lastError;
   }
 
-  static buildParams({
-    query,
-    mode = 'artlist',
-    timespan,
-    maxrecords = 75,
-    sort = 'DateDesc',
-  }: GdeltSearchParams): URLSearchParams {
-    if (query.length < 3 || query.length > 1000) {
-      throw new Error('Query must be between 3 and 1000 characters');
-    }
+  return {
+    /** Artlist search returning typed articles. */
+    async searchArticles(params: GdeltSearchParams): Promise<GdeltResponse> {
+      const data = (await fetchRaw(buildParams(params))) as Partial<GdeltResponse>;
 
-    if (timespan && !isValidTimespan(timespan)) {
-      throw new Error('Invalid timespan format');
-    }
+      if (data.status === 'ERROR') {
+        throw new Error(data.error || 'Unknown API error');
+      }
 
-    if (maxrecords < 1 || maxrecords > 250) {
-      throw new Error('maxrecords must be between 1 and 250');
-    }
+      return {
+        status: 'OK',
+        totalResults: data.totalResults ?? 0,
+        timespan: data.timespan ?? '',
+        query: data.query ?? params.query,
+        articles: data.articles ?? [],
+      };
+    },
 
-    const params = new URLSearchParams({
-      query,
-      mode,
-      format: 'json',
-      maxrecords: maxrecords.toString(),
-      sort,
-    });
-
-    if (timespan) params.append('timespan', timespan);
-    return params;
-  }
-
-  /** Artlist search returning typed articles. */
-  static async searchArticles(params: GdeltSearchParams): Promise<GdeltResponse> {
-    const data = (await this.fetchRaw(this.buildParams(params))) as Partial<GdeltResponse>;
-
-    if (data.status === 'ERROR') {
-      throw new Error(data.error || 'Unknown API error');
-    }
-
-    return {
-      status: 'OK',
-      totalResults: data.totalResults ?? 0,
-      timespan: data.timespan ?? '',
-      query: data.query ?? params.query,
-      articles: data.articles ?? [],
-    };
-  }
-
-  /**
-   * Volume-intensity timeline from DOC timelinevol mode. Same validation
-   * and failover path as artlist — callers parse the lenient shape.
-   */
-  static async volumeTimeline(query: string, timespan = '3m'): Promise<unknown> {
-    return this.fetchRaw(this.buildParams({ query, mode: 'timelinevol', timespan }));
-  }
+    /**
+     * Volume-intensity timeline from DOC timelinevol mode. Same validation
+     * and failover path as artlist — callers parse the lenient shape.
+     */
+    async volumeTimeline(query: string, timespan = '3m'): Promise<unknown> {
+      return fetchRaw(buildParams({ query, mode: 'timelinevol', timespan }));
+    },
+  };
 }
+
+/** Live composition — the isolate-wide gate paces every caller automatically. */
+export const gdeltApi = createGdeltApi();

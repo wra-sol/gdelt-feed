@@ -2,8 +2,7 @@ import React from "react";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { getLensWithWatches } from "~/services/lensDb";
 import { getCoverageCached } from "~/services/coverage";
-import { compileWatchQuery } from "~/services/watchEngine";
-import { watchRef } from "~/services/watchView";
+import { watchRef } from "~/services/watchEngine";
 import { getNgramDailySeries } from "~/services/ngrams";
 import {
 	fetchVolumeTimeline,
@@ -41,8 +40,9 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
 	// timeline call is deferred — the page streams its shell immediately.
 	const trends: WatchTrend[] = await Promise.all(
 		watches.map(async (watch) => {
-			const query = compileWatchQuery(watch);
-			const cached = await getCoverageCached(db, watchRef(watch));
+			const ref = watchRef(watch);
+			const query = ref.query;
+			const cached = await getCoverageCached(db, ref);
 
 			const pointsPromise = fetchVolumeTimeline(query, watch.timespan ?? "3m")
 				.then((points) => ({ points, stale: points.length === 0 }))
