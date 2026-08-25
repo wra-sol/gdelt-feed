@@ -16,12 +16,9 @@ export default {
 	async scheduled(_controller, env, _ctx) {
 		if ((env.NGRAMS_ENABLED ?? "").toLowerCase() !== "true") return;
 		const db = env.DB;
-		const { getLenses, getWatchesForLens } = await import("~/services/lensDb");
+		const { getAllWatches } = await import("~/services/lensDb");
 		const { ingestLatestMinute, pruneNgramHits } = await import("~/services/ngrams");
-		const lenses = await getLenses(db);
-		const watches = (
-			await Promise.all(lenses.map((l) => getWatchesForLens(db, l.id)))
-		).flat();
+		const watches = await getAllWatches(db);
 
 		try {
 			const result = await ingestLatestMinute(db, watches);

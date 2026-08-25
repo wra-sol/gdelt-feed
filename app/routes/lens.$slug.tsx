@@ -9,12 +9,19 @@ import {
 } from "react-router";
 import type { Article } from "~/types/gdelt";
 import { swr } from "~/services/coverage";
-import { isValidTimespan } from "~/services/gdeltApi";
-import { getLensBySlug, getWatchesForLens, addWatch, deleteWatch } from "~/services/lensDb";
-import { compileWatchQuery, type WatchDef } from "~/services/watchEngine";
+import {
+	getLensWithWatches,
+	addWatch,
+	deleteWatch,
+} from "~/services/lensDb";
 import { getRecentNgramHits } from "~/services/ngrams";
-	import { groupArticlesByTitle, groupKey, type ArticleGroup } from "~/lib/grouping";
-	import { formatSeenUtc, isoToSeenDate } from "~/lib/date";
+import {
+	buildWatchView,
+	watchRef,
+	type FreshView,
+} from "~/services/watchView";
+import { groupArticlesByTitle, type ArticleGroup } from "~/lib/grouping";
+import { formatSeenUtc } from "~/lib/date";
 	import { computePulse } from "~/lib/pulse";
 	import { seenCookieValue, seenCookieWrite } from "~/lib/lastSeen";
 	import { lensFlag } from "~/data/countries";
@@ -46,88 +53,19 @@ import {
 import { RadarIcon, RssIcon } from "lucide-react";
 
 /**
- * Per-watch view. docArticles is the DOC-coverage primary list — the ONLY
- * input to totals and pulse math. displayGroups is the rendering list:
- * doc groups with ngram-derived articles merged in (badge-tagged via
- * ngramUrls), so ngram hits never inflate counts.
+ * The count-honest per-watch view and its blending rules live in
+ * services/watchView.ts — this route renders them.
  */
-interface WatchView extends WatchDef {
-	docArticles: Article[];
-	displayGroups: ArticleGroup[];
-	total: number;
-	stale: boolean;
-	ngramUrls: string[];
-}
-
-/** What a deferred fresh resolution delivers to the card body. */
-interface FreshView {
-	displayGroups: ArticleGroup[];
-	total: number;
-	stale: boolean;
-	newCount: number;
-	ngramUrls: string[];
-}
-
-function watchRef(watch: WatchDef) {
-	return {
-		id: watch.id,
-		query: compileWatchQuery(watch),
-		timespan: watch.timespan,
-		sort: watch.sort,
-		maxrecords: watch.maxrecords,
-	};
-}
 
 type NgramHit = Awaited<ReturnType<typeof getRecentNgramHits>>[number];
-
-/** Pure: DOC coverage + ngram hits → blended, count-honest view. */
-function buildWatchView(
-	watch: WatchDef,
-	docArticles: Article[],
-	hits: NgramHit[],
-	stale: boolean,
-): WatchView {
-	const existingUrls = new Set(docArticles.map((a) => a.url));
-	const ngramUrls = new Set<string>();
-	const groups = groupArticlesByTitle([...docArticles]);
-	const byKey = new Map(groups.map((g) => [groupKey({ title: g.title }), g]));
-
-	for (const hit of hits) {
-		if (existingUrls.has(hit.url)) continue;
-		ngramUrls.add(hit.url);
-		const pseudo: Article = {
-			url: hit.url,
-			title: hit.title ?? hit.url,
-			socialimage: hit.imageUrl,
-			seendate: isoToSeenDate(hit.publishedAt),
-		};
-		const g = byKey.get(groupKey(pseudo));
-		if (g) g.articles.push(pseudo);
-		else {
-			const ng: ArticleGroup = { title: pseudo.title, articles: [pseudo] };
-			groups.push(ng);
-			byKey.set(groupKey(pseudo), ng);
-		}
-	}
-
-	return {
-		...watch,
-		docArticles,
-		displayGroups: groups.slice(0, 12),
-		total: docArticles.length,
-		stale,
-		ngramUrls: [...ngramUrls],
-	};
-}
 
 export const middleware = [writeGate];
 
 export async function loader({ params, request, context }: LoaderFunctionArgs) {
 	const db = getCloudflare(context).env.DB;
-	const lens = await getLensBySlug(db, params.slug!);
-	if (!lens) throw new Response("Lens not found", { status: 404 });
-
-	const watches = await getWatchesForLens(db, lens.id);
+	const found = await getLensWithWatches(db, params.slug!);
+	if (!found) throw new Response("Lens not found", { status: 404 });
+	const { lens, watches } = found;
 
 	const lastSeenIso = seenCookieValue(request, lens.slug);
 
@@ -160,7 +98,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 						lastSeenIso,
 					);
 					return {
-						displayGroups: fv.displayGroups.slice(0, 12),
+						displayGroups: fv.displayGroups,
 						total: fv.total,
 						stale: fv.stale,
 						newCount: fp.perWatch[watch.id]?.newCount ?? 0,
@@ -217,32 +155,24 @@ export async function action({ request, context }: LoaderFunctionArgs) {
 	if (intent === "delete-watch") {
 		await deleteWatch(db, formData.get("watchId")!.toString());
 	} else if (intent === "add-watch") {
-		const terms = formData
-			.get("terms")!
-			.toString()
-			.split(",")
-			.map((t) => t.trim())
-			.filter(Boolean);
-		if (terms.length === 0) return new Response("terms required", { status: 400 });
-		const timespan = formData.get("timespan")?.toString() || undefined;
-		if (timespan && !isValidTimespan(timespan)) {
-			return new Response("invalid timespan", { status: 400 });
-		}
-		const watch = {
-			id: "pending",
-			lensId: formData.get("lensId")!.toString(),
-			label: formData.get("label")!.toString() || terms[0],
-			terms,
-			timespan,
-		};
+		// addWatch owns validation — it refuses what reads cannot survive.
+		// This action only translates refusals into HTTP.
 		try {
-			compileWatchQuery(watch);
+			await addWatch(db, formData.get("lensId")!.toString(), {
+				label: formData.get("label")!.toString(),
+				terms: formData
+					.get("terms")!
+					.toString()
+					.split(",")
+					.map((t) => t.trim())
+					.filter(Boolean),
+				timespan: formData.get("timespan")?.toString() || undefined,
+			});
 		} catch (error) {
 			return new Response(error instanceof Error ? error.message : "invalid watch", {
 				status: 400,
 			});
 		}
-		await addWatch(db, watch.lensId, watch);
 	}
 
 	return null;

@@ -1,7 +1,8 @@
 import type { LoaderFunctionArgs } from "react-router";
-import { getLensBySlug, getWatchesForLens } from "~/services/lensDb";
-import { getCachedArticles } from "~/services/articleCache";
+import { getLensWithWatches } from "~/services/lensDb";
+import { getCoverageCached } from "~/services/coverage";
 import { compileWatchQuery } from "~/services/watchEngine";
+import { watchRef } from "~/services/watchView";
 import { seenToRfc822 } from "~/lib/date";
 import { rssTokenOk } from "~/lib/access";
 import { getCloudflare } from "~/lib/cloudflare-context";
@@ -30,15 +31,17 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 	}
 
 	const db = env.DB;
-	const lens = await getLensBySlug(db, params.slug!);
-	if (!lens) return new Response("Lens not found", { status: 404 });
-
-	const watches = await getWatchesForLens(db, lens.id);
+	const found = await getLensWithWatches(db, params.slug!);
+	if (!found) return new Response("Lens not found", { status: 404 });
+	const { lens, watches } = found;
 	const origin = url.origin;
 
 	const items = new Map<string, { title: string; link: string; source: string; date?: string; watch: string }>();
 
-	const cachedLists = await Promise.all(watches.map((watch) => getCachedArticles(db, watch.id)));
+	// Cache-only policy: getCoverageCached never fetches upstream.
+	const cachedLists = await Promise.all(
+		watches.map((watch) => getCoverageCached(db, watchRef(watch))),
+	);
 	for (const [i, watch] of watches.entries()) {
 		const query = compileWatchQuery(watch);
 		for (const article of cachedLists[i]?.articles ?? []) {

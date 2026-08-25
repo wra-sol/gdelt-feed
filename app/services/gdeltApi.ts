@@ -68,11 +68,10 @@ export class GdeltApi {
     return THROTTLE_MARKERS.some((m) => lower.includes(m));
   }
 
-  /**
-   * Raw fetch across primary then backup host. Throws GdeltRateLimitError on
-   * throttle text or HTTP 429. Returns parsed JSON for json format.
-   */
-  static async fetchRaw(params: URLSearchParams): Promise<unknown> {
+  /** Raw fetch across primary then backup host. Throws GdeltRateLimitError on
+   *  throttle text or HTTP 429. Returns parsed JSON for json format.
+   *  Private: all DOC modes go through validated methods — no tunneling. */
+  private static async fetchRaw(params: URLSearchParams): Promise<unknown> {
     let lastError: Error = new Error('GDELT request never attempted');
 
     for (const host of GDELT_HOSTS) {
@@ -156,5 +155,13 @@ export class GdeltApi {
       query: data.query ?? params.query,
       articles: data.articles ?? [],
     };
+  }
+
+  /**
+   * Volume-intensity timeline from DOC timelinevol mode. Same validation
+   * and failover path as artlist — callers parse the lenient shape.
+   */
+  static async volumeTimeline(query: string, timespan = '3m'): Promise<unknown> {
+    return this.fetchRaw(this.buildParams({ query, mode: 'timelinevol', timespan }));
   }
 }

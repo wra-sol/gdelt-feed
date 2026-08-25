@@ -22,14 +22,7 @@ export async function fetchVolumeTimeline(
 	query: string,
 	timespan = "3m",
 ): Promise<TimelinePoint[]> {
-	const params = new URLSearchParams({
-		query,
-		mode: "timelinevol",
-		format: "json",
-		timespan,
-	});
-
-	const raw = (await GdeltApi.fetchRaw(params)) as Partial<RawTimelineResponse>;
+	const raw = (await GdeltApi.volumeTimeline(query, timespan)) as Partial<RawTimelineResponse>;
 	const series = raw?.timeline?.[0]?.data?.[0]?.values;
 
 	if (!Array.isArray(series)) return [];

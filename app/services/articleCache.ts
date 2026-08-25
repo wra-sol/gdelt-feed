@@ -1,5 +1,14 @@
 import type { Article } from "~/types/gdelt";
 
+/**
+ * Implementation annex of the Coverage module (services/coverage.ts) —
+ * do not import reads/writes from here; cross the Coverage interface.
+ * The only sanctioned external use is deleteCachedStmt, which exists so
+ * lensDb can compose atomic multi-table deletes via db.batch.
+ *
+ * The SQL column is named `column_id` for migration-history reasons;
+ * in this domain it holds a Watch id.
+ */
 export interface CachedArticles {
 	articles: Article[];
 	isFresh: boolean;
@@ -11,11 +20,11 @@ const FRESH_MS = 15 * 60 * 1000;
 
 export async function getCachedArticles(
 	db: D1Database,
-	columnId: string,
+	watchId: string,
 ): Promise<CachedArticles | null> {
 	const result = await db
 		.prepare("SELECT articles, last_fetched FROM article_cache WHERE column_id = ?1")
-		.bind(columnId)
+		.bind(watchId)
 		.first<{ articles: string; last_fetched: string }>();
 
 	if (!result) return null;
@@ -38,7 +47,7 @@ export async function getCachedArticles(
 
 export async function cacheArticles(
 	db: D1Database,
-	columnId: string,
+	watchId: string,
 	articles: Article[],
 ): Promise<void> {
 	await db
@@ -49,11 +58,11 @@ export async function cacheArticles(
 			   articles = ?2,
 			   last_fetched = ?3`,
 		)
-		.bind(columnId, JSON.stringify(articles), new Date().toISOString())
+		.bind(watchId, JSON.stringify(articles), new Date().toISOString())
 		.run();
 }
 
 /** Statement form for composing atomic multi-table deletes via db.batch. */
-export function deleteCachedStmt(db: D1Database, columnId: string): D1PreparedStatement {
-	return db.prepare("DELETE FROM article_cache WHERE column_id = ?1").bind(columnId);
+export function deleteCachedStmt(db: D1Database, watchId: string): D1PreparedStatement {
+	return db.prepare("DELETE FROM article_cache WHERE column_id = ?1").bind(watchId);
 }

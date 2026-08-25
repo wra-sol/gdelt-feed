@@ -1,5 +1,5 @@
-import { parseSort } from "~/services/gdeltApi";
-import type { WatchDef } from "~/services/watchEngine";
+import { parseSort, isValidTimespan } from "~/services/gdeltApi";
+import { compileWatchQuery, type WatchDef } from "~/services/watchEngine";
 import { deleteCachedStmt } from "~/services/articleCache";
 import { deleteNgramHitsStmt } from "~/services/ngrams";
 
@@ -111,6 +111,23 @@ export async function getWatchesForLens(db: D1Database, lensId: string): Promise
 	return results.map(rowToWatch);
 }
 
+/** The Lens-with-Watches aggregate every consumer actually wants. */
+export async function getLensWithWatches(
+	db: D1Database,
+	slug: string,
+): Promise<{ lens: Lens; watches: WatchDef[] } | null> {
+	const lens = await getLensBySlug(db, slug);
+	if (!lens) return null;
+	const watches = await getWatchesForLens(db, lens.id);
+	return { lens, watches };
+}
+
+/** Every watch across all lenses (cron fan-out). */
+export async function getAllWatches(db: D1Database): Promise<WatchDef[]> {
+	const lenses = await getLenses(db);
+	return (await Promise.all(lenses.map((l) => getWatchesForLens(db, l.id)))).flat();
+}
+
 export async function getWatch(db: D1Database, id: string): Promise<WatchDef | null> {
 	const row = await db
 		.prepare(
@@ -130,7 +147,28 @@ export interface NewWatch {
 	maxrecords?: number;
 }
 
+/**
+ * The one write door for Watches. Validates what the read path cannot
+ * survive — empty terms, bad timespans, queries over the 1000-char DOC
+ * limit — by compiling before insert and throwing loudly (CONTEXT.md:
+ * watch-query invariant). Every writer crosses this interface: form
+ * actions, seed scripts, future tooling.
+ */
 export async function addWatch(db: D1Database, lensId: string, watch: NewWatch): Promise<string> {
+	if (watch.terms.length === 0) throw new Error("Watch terms required");
+	const timespan = watch.timespan;
+	if (timespan && !isValidTimespan(timespan)) {
+		throw new Error(`Invalid timespan: ${timespan}`);
+	}
+	compileWatchQuery({
+		id: "pending",
+		lensId,
+		label: watch.label,
+		terms: watch.terms,
+		geoTerms: watch.geoTerms,
+		timespan,
+	});
+
 	const id = crypto.randomUUID();
 	await db
 		.prepare(
@@ -140,10 +178,10 @@ export async function addWatch(db: D1Database, lensId: string, watch: NewWatch):
 		.bind(
 			id,
 			lensId,
-			watch.label.slice(0, 80),
+			(watch.label || watch.terms[0]).slice(0, 80),
 			JSON.stringify(watch.terms),
 			watch.geoTerms?.length ? JSON.stringify(watch.geoTerms) : null,
-			watch.timespan ?? null,
+			timespan ?? null,
 			watch.maxrecords ?? 50,
 		)
 		.run();

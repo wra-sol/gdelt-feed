@@ -1,10 +1,15 @@
 import React from "react";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
-import { getLensBySlug, getWatchesForLens } from "~/services/lensDb";
+import { getLensWithWatches } from "~/services/lensDb";
+import { getCoverageCached } from "~/services/coverage";
 import { compileWatchQuery } from "~/services/watchEngine";
-import { fetchVolumeTimeline, averageTone, type TimelinePoint } from "~/services/timeline";
-import { getCachedArticles } from "~/services/articleCache";
+import { watchRef } from "~/services/watchView";
 import { getNgramDailySeries } from "~/services/ngrams";
+import {
+	fetchVolumeTimeline,
+	averageTone,
+	type TimelinePoint,
+} from "~/services/timeline";
 import { TrendChart } from "~/components/TrendChart";
 import { getCloudflare } from "~/lib/cloudflare-context";
 import { Card } from "~/components/ui/card";
@@ -23,12 +28,11 @@ interface WatchTrend {
 
 export async function loader({ params, context }: LoaderFunctionArgs) {
 	const db = getCloudflare(context).env.DB;
-	const lens = await getLensBySlug(db, params.slug!);
-	if (!lens) throw new Response("Lens not found", { status: 404 });
+	const found = await getLensWithWatches(db, params.slug!);
+	if (!found) throw new Response("Lens not found", { status: 404 });
+	const { lens, watches } = found;
 
-	const watches = await getWatchesForLens(db, lens.id);
-	const ngramSeries = await getNgramDailySeries(
-		db,
+	const ngramSeries = await getNgramDailySeries(		db,
 		watches.map((w) => w.id),
 		30,
 	);
@@ -38,7 +42,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
 	const trends: WatchTrend[] = await Promise.all(
 		watches.map(async (watch) => {
 			const query = compileWatchQuery(watch);
-			const cached = await getCachedArticles(db, watch.id);
+			const cached = await getCoverageCached(db, watchRef(watch));
 
 			const pointsPromise = fetchVolumeTimeline(query, watch.timespan ?? "3m")
 				.then((points) => ({ points, stale: points.length === 0 }))
