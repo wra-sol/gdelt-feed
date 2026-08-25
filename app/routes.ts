@@ -27,6 +27,10 @@ export default [
       {
         path: "rss/lens/:slug",
         file: "./routes/rss.lens.$slug.tsx",
+      },
+      {
+        path: "rss/lens/:slug/:watchId",
+        file: "./routes/rss.lens.$slug.$watchId.tsx",
       }
     ]
   }

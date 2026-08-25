@@ -9,16 +9,13 @@ import { rssTokenOk } from "~/lib/access";
 import { getCloudflare } from "~/lib/cloudflare-context";
 
 /**
- * Public per-lens RSS — merges every watch's cached coverage.
- * Serves from the shared D1 cache only (TTL-governed); RSS never triggers
- * upstream GDELT fetches, keeping the token budget for page renders.
+ * Public per-watch RSS — one watch's cached coverage (decision #8).
+ * Cache-only like the per-lens feed: never fetches upstream.
  */
 export async function loader({ params, request, context }: LoaderFunctionArgs) {
 	const env = getCloudflare(context).env;
 	const url = new URL(request.url);
 
-	// Decision #12: RSS is public, but when the Access gate is on we require
-	// the unguessable per-deployment token so readers can poll unauthenticated.
 	if (!rssTokenOk(env, url.searchParams.get("token"))) {
 		return new Response("Forbidden", { status: 403 });
 	}
@@ -27,34 +24,33 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 	const found = await getLensWithWatches(db, params.slug!);
 	if (!found) return new Response("Lens not found", { status: 404 });
 	const { lens, watches } = found;
+
+	const watch = watches.find((w) => w.id === params.watchId);
+	if (!watch) return new Response("Watch not found", { status: 404 });
+
 	const origin = url.origin;
-
 	// Cache-only policy: getCoverageCached never fetches upstream.
-	const cachedLists = await Promise.all(
-		watches.map((watch) => getCoverageCached(db, watchRef(watch))),
-	);
+	const cached = await getCoverageCached(db, watchRef(watch));
 
-	const items = new Map<string, RssFeedItem>();
-	for (const [i, watch] of watches.entries()) {
-		const query = compileWatchQuery(watch);
-		for (const article of cachedLists[i]?.articles ?? []) {
-			if (!article.url || items.has(article.url)) continue;
-			items.set(article.url, {
-				title: article.title,
-				link: article.url,
-				description: `Watch: ${watch.label} · Source: ${article.domain ?? "unknown"} · ${query}`,
-				date: seenToRfc822(article.seendate),
-			});
-		}
-	}
+	const items: RssFeedItem[] = cached.articles
+		.filter((a) => a.url)
+		.map((a) => ({
+			title: a.title,
+			link: a.url,
+			description: `Source: ${a.domain ?? "unknown"} · ${compileWatchQuery(watch)}`,
+			date: seenToRfc822(a.seendate),
+		}));
 
 	const xml = buildRssFeed(
 		{
-			title: `Meridian · ${lens.name}`,
+			title: `Meridian · ${lens.name} · ${watch.label}`,
 			link: `${origin}/lens/${lens.slug}`,
-			description: lens.description ?? `World press coverage of ${lens.name}`,
+			description:
+				watch.label === lens.name
+					? lens.description ?? `World press coverage of ${lens.name}`
+					: `${watch.label} — world press coverage of ${lens.name}`,
 		},
-		[...items.values()],
+		items,
 	);
 
 	return new Response(xml, RSS_RESPONSE_INIT);

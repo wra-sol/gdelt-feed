@@ -236,10 +236,12 @@ function WatchList({ articles, ngramUrls }: { articles: ArticleGroup[]; ngramUrl
 
 function WatchCard({
 	watch,
+	slug,
 	canEdit,
 	onAskDelete,
 }: {
 	watch: WatchData;
+	slug: string;
 	canEdit: boolean;
 	onAskDelete: (w: { id: string; label: string }) => void;
 }) {
@@ -248,16 +250,26 @@ function WatchCard({
 			<div className="sticky top-0 z-10 rounded-t-xl border-b border-border bg-card/95 p-4 backdrop-blur">
 				<div className="mb-1 flex items-start justify-between gap-2">
 					<h3 className="font-heading font-semibold text-foreground">{watch.label}</h3>
-					{canEdit && (
-						<Button
-							variant="ghost"
-							size="touch"
-							className="-mr-2 -mt-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
-							onPress={() => onAskDelete({ id: watch.id, label: watch.label })}
+					<div className="flex shrink-0 items-center gap-1">
+						<a
+							href={`/rss/lens/${slug}/${watch.id}`}
+							title={`${watch.label} RSS feed`}
+							className={cn(buttonVariants({ variant: "ghost", size: "touch", className: "text-muted-foreground hover:text-primary" }))}
 						>
-							Delete
-						</Button>
-					)}
+							<RssIcon className="size-4" aria-hidden />
+							<span className="sr-only">{watch.label} RSS feed</span>
+						</a>
+						{canEdit && (
+							<Button
+								variant="ghost"
+								size="touch"
+								className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+								onPress={() => onAskDelete({ id: watch.id, label: watch.label })}
+							>
+								Delete
+							</Button>
+						)}
+					</div>
 				</div>
 				<div className="font-mono text-xs text-muted-foreground">
 					{watch.timespan && <span className="mr-2">· {watch.timespan}</span>}
@@ -339,6 +351,15 @@ export default function LensPage() {
 				title={`${lens.name} — Meridian`}
 				href={`/rss/lens/${lens.slug}`}
 			/>
+			{watches.map((w) => (
+				<link
+					key={w.id}
+					rel="alternate"
+					type="application/rss+xml"
+					title={`${lens.name} · ${w.label} — Meridian`}
+					href={`/rss/lens/${lens.slug}/${w.id}`}
+				/>
+			))}
 			<div className="mb-4 flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
 				<div>
 					<h1 className="flex items-center gap-2 font-heading text-xl font-bold tracking-tight text-foreground">
@@ -454,7 +475,7 @@ export default function LensPage() {
 				<div className="relative">
 					<div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4">
 						{watches.map((w) => (
-							<WatchCard key={w.id} watch={w} canEdit onAskDelete={setPendingDelete} />
+							<WatchCard key={w.id} watch={w} slug={lens.slug} canEdit onAskDelete={setPendingDelete} />
 						))}
 					</div>
 					{/* Edge fades hint the scroll without stealing clicks (HIG deference). */}
