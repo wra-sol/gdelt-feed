@@ -46,6 +46,34 @@ const article = (url: string) => ({ url, title: `Story ${url}`, domain: "example
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 
+/** Wraps fakeDb so the Nth SELECT rejects — simulates a transient D1 error. */
+function readFailsOn(db: D1Database, nth: number): D1Database {
+	let reads = 0;
+	return {
+		prepare(sql: string) {
+			const inner = (db as unknown as { prepare: (s: string) => D1PreparedStatement }).prepare(
+				sql,
+			);
+			if (!sql.includes("SELECT")) return inner;
+			const wrapper = {
+				bind(...args: unknown[]) {
+					(inner.bind as (...a: unknown[]) => unknown)(...args);
+					return wrapper;
+				},
+				async first<T>() {
+					reads++;
+					if (reads === nth) throw new Error("D1 transient error");
+					return inner.first<T>();
+				},
+				run() {
+					return inner.run();
+				},
+			};
+			return wrapper as unknown as D1PreparedStatement;
+		},
+	} as unknown as D1Database;
+}
+
 type CacheTable = Map<string, { articles: string; last_fetched: string }>;
 
 function seed(table: CacheTable, id: string, when: string, urls: string[]) {
@@ -119,6 +147,26 @@ describe("revalidateCoverage()", () => {
 	function minutesFrom(table: CacheTable): string {
 		return (table.get(ref.id) as { last_fetched: string }).last_fetched;
 	}
+
+	/** Regression: the degrade-path recovery read must never reject the fresh
+	 * promise — a transient D1 error there used to escape silently and blow up
+	 * the client via React.use(). */
+	it("survives a failing recovery read after upstream failure — resolves degraded", async () => {
+		const table: CacheTable = new Map();
+		seed(table, ref.id, minutesAgo(30), ["https://cached.example/old"]);
+		searchArticles.mockRejectedValue(new Error("GDELT down"));
+
+		const db = readFailsOn(fakeDb(table), 2); // 1st read = immediate, 2nd = recovery
+		const { immediate, fresh } = await swr(db, ref);
+		expect(immediate.stale).toBe(true);
+
+		await expect(fresh).resolves.toMatchObject({
+			source: "stale-cache",
+			stale: true,
+			articles: [],
+			fetchedAt: null,
+		});
+	});
 
 	it("clamps maxrecords into [1, 250]", async () => {
 		searchArticles.mockResolvedValue({ articles: [] });

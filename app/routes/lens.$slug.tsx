@@ -62,6 +62,12 @@ import { WatchEditor } from "~/components/watchEditor";
 
 type NgramHit = Awaited<ReturnType<typeof getRecentNgramHits>>[number];
 
+/** New-count for a view against this request's last-seen baseline. */
+function pulseNow(view: { id: string; docArticles: Article[] }, lastSeenIso: string | null) {
+	const fp = computePulse([{ id: view.id, articles: view.docArticles }], lastSeenIso);
+	return fp.perWatch[view.id]?.newCount ?? 0;
+}
+
 export const middleware = [writeGate];
 
 export async function loader({ params, request, context }: LoaderFunctionArgs) {
@@ -89,25 +95,36 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 			const view = buildWatchView(watch, immediate.articles, hits, immediate.stale);
 			let freshPromise: Promise<FreshView> | null = null;
 			if (fresh) {
-				freshPromise = fresh.then((coverage) => {
-					const fv = buildWatchView(
-						watch,
-						coverage.articles,
-						hitsByWatch.get(watch.id) ?? [],
-						coverage.stale,
-					);
-					const fp = computePulse(
-						[{ id: watch.id, articles: fv.docArticles }],
-						lastSeenIso,
-					);
-					return {
-						displayGroups: fv.displayGroups,
-						total: fv.total,
-						stale: fv.stale,
-						newCount: fp.perWatch[watch.id]?.newCount ?? 0,
-						ngramUrls: fv.ngramUrls,
-					};
-				});
+				freshPromise = fresh
+					.then((coverage) => {
+						const fv = buildWatchView(
+							watch,
+							coverage.articles,
+							hitsByWatch.get(watch.id) ?? [],
+							coverage.stale,
+						);
+						const fp = computePulse(
+							[{ id: watch.id, articles: fv.docArticles }],
+							lastSeenIso,
+						);
+						return {
+							displayGroups: fv.displayGroups,
+							total: fv.total,
+							stale: fv.stale,
+							newCount: fp.perWatch[watch.id]?.newCount ?? 0,
+							ngramUrls: fv.ngramUrls,
+						};
+					})
+					.catch((error: unknown) => {
+						console.error(`[lens] fresh stream failed for ${watch.id}:`, error);
+						return {
+							displayGroups: view.displayGroups,
+							total: view.total,
+							stale: true,
+							newCount: pulseNow(view, lastSeenIso),
+							ngramUrls: view.ngramUrls,
+						};
+					});
 			}
 			return { view, freshPromise };
 		}),

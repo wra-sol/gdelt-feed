@@ -1,4 +1,4 @@
-import { getCachedArticles, cacheArticles } from "~/services/articleCache";
+import { getCachedArticles, cacheArticles, type CachedArticles } from "~/services/articleCache";
 import { gdeltApi } from "~/services/gdeltApi";
 import type { SortOrder } from "~/services/gdeltApi";
 import type { Article } from "~/types/gdelt";
@@ -82,7 +82,12 @@ async function doRevalidateCoverage(db: D1Database, watch: WatchRef): Promise<Co
 		};
 	} catch (error) {
 		console.error(`[coverage] ${watch.id} revalidation failed:`, error);
-		const cached = await getCachedArticles(db, watch.id);
+		let cached: CachedArticles | null = null;
+		try {
+			cached = await getCachedArticles(db, watch.id);
+		} catch (recoveryError) {
+			console.error(`[coverage] ${watch.id} recovery read failed:`, recoveryError);
+		}
 		return {
 			articles: cached?.articles ?? [],
 			source: "stale-cache",

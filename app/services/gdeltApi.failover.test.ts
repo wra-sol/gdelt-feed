@@ -54,16 +54,16 @@ afterEach(() => {
 });
 
 describe("createGdeltApi — failure modes through the caller interface", () => {
-	it("fails over to the backup host on network error and returns articles", async () => {
+	it("throws the last error when the only host fails — no decoy failover", async () => {
 		const { api, calls } = apiWith([
 			new Error("primary unreachable"),
 			jsonResponse({ status: "OK", articles: [{ url: "u1", title: "T" }] }),
 		]);
-		const result = await api.searchArticles({ query: "climate policy" });
-		expect(result.articles).toHaveLength(1);
-		expect(calls).toHaveLength(2);
+		await expect(api.searchArticles({ query: "climate policy" })).rejects.toThrow(
+			"primary unreachable",
+		);
+		expect(calls).toHaveLength(1);
 		expect(calls[0].url).toContain("api.gdeltproject.org");
-		expect(calls[1].url).toContain("api-backup.gdeltproject.org");
 	});
 
 	it("recognises HTTP-200 plain-text throttle as a rate limit and marks the gate", async () => {
@@ -80,7 +80,7 @@ describe("createGdeltApi — failure modes through the caller interface", () => 
 		expect(markThrottled).toHaveBeenCalledOnce();
 	});
 
-	it("treats HTTP 429 the same way without trying the backup host", async () => {
+	it("treats HTTP 429 as final — no retry, no second host", async () => {
 		const { api, calls } = apiWith([textResponse("too many", 429)]);
 		await expect(api.searchArticles({ query: "climate policy" })).rejects.toBeInstanceOf(
 			GdeltRateLimitError,
@@ -88,14 +88,15 @@ describe("createGdeltApi — failure modes through the caller interface", () => 
 		expect(calls).toHaveLength(1);
 	});
 
-	it("falls through non-JSON garbage to the backup host", async () => {
+	it("surfaces non-JSON garbage as a thrown error", async () => {
 		const { api, calls } = apiWith([
 			textResponse("<html>not json at all</html>"),
 			jsonResponse({ status: "OK", articles: [] }),
 		]);
-		const result = await api.searchArticles({ query: "climate policy" });
-		expect(result.status).toBe("OK");
-		expect(calls).toHaveLength(2);
+		await expect(api.searchArticles({ query: "climate policy" })).rejects.toThrow(
+			"Non-JSON response",
+		);
+		expect(calls).toHaveLength(1);
 	});
 
 	it("fast-fails with a rate-limit error when the gate is in cooldown", async () => {

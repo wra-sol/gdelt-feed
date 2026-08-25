@@ -40,8 +40,10 @@ export interface GdeltResponse {
 }
 
 const GDELT_HOSTS = [
+  // The only host that serves the DOC API. "api-backup.gdeltproject.org"
+  // 301s to the marketing site (which 404s the API path) — it has never
+  // been a real mirror; keeping it just burned a timeout per failover.
   'https://api.gdeltproject.org',
-  'https://api-backup.gdeltproject.org',
 ] as const;
 
 // GDELT intermittently blocks non-browser user agents (community-documented).

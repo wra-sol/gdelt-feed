@@ -3,6 +3,15 @@ import { ServerRouter } from "react-router";
 import { isbot } from "isbot";
 import { renderToReadableStream } from "react-dom/server";
 
+/**
+ * RR7 aborts unsettled deferred loader promises with "Server Timeout" after
+ * this many ms and ships them to the client as rejections. Default 4950ms is
+ * shorter than a single GDELT fetch timeout (20s) — every slow revalidation
+ * would arrive as a rejected freshPromise. Give deferred coverage room to
+ * land; worst case ≈ gate spacing (5.5s) + one fetch timeout (20s).
+ */
+export const streamTimeout = 60_000;
+
 export default async function handleRequest(
 	request: Request,
 	responseStatusCode: number,
