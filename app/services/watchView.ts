@@ -66,7 +66,13 @@ export function buildFreshView(
 
 const MAX_GROUPS = 12;
 
-/** Pure: DOC coverage + ngram hits → blended, count-honest view. */
+/**
+ * Pure: DOC coverage + ngram hits → blended, count-honest view. The cap
+ * applies per origin — DOC groups cap at MAX_GROUPS and ngram-only groups
+ * append their own MAX_GROUPS — so a DOC-heavy watch can never slice the
+ * ngram stream into invisibility (the empty-NGRAM-view bug), while `total`
+ * still counts docArticles alone.
+ */
 export function buildWatchView(
 	watch: WatchDef,
 	docArticles: Article[],
@@ -76,6 +82,7 @@ export function buildWatchView(
 	const existingUrls = new Set(docArticles.map((a) => a.url));
 	const ngramUrls = new Set<string>();
 	const groups = groupArticlesByTitle([...docArticles]);
+	const docGroupCount = groups.length;
 	const byKey = new Map(groups.map((g) => [groupKey({ title: g.title }), g]));
 
 	for (const hit of hits) {
@@ -99,7 +106,10 @@ export function buildWatchView(
 	return {
 		...watch,
 		docArticles,
-		displayGroups: groups.slice(0, MAX_GROUPS),
+		displayGroups: [
+			...groups.slice(0, Math.min(MAX_GROUPS, docGroupCount)),
+			...groups.slice(docGroupCount, docGroupCount + MAX_GROUPS),
+		],
 		total: docArticles.length,
 		stale,
 		ngramUrls: [...ngramUrls],

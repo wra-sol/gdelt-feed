@@ -4,7 +4,6 @@ import {
 	buildContacts,
 	clampSelection,
 	matchesView,
-	FLAGGED_TONE_THRESHOLD,
 } from "~/lib/consoleModel";
 
 function source(label: string, groups: { title: string; url: string; seendate?: string; tone?: number }[], ngramUrls: string[] = []) {
@@ -68,13 +67,15 @@ describe("applyView / matchesView", () => {
 				{ title: "fresh unread", url: "a", seendate: "2026-08-24T12:00:00Z" },
 				{ title: "ngram only", url: "b", tone: 1 },
 			], ["b"]),
-			source("V", [{ title: "negative", url: "c", tone: FLAGGED_TONE_THRESHOLD }]),
+			source("V", [{ title: "negative tone", url: "c", tone: -7 }]),
+			source("U", [{ title: "pinned", url: "d" }]),
 		],
 		new Set(["a"]),
+		new Set(["d"]),
 	);
 
 	it("NEW is exactly the unread set", () => {
-		expect(applyView(contacts, "NEW").map((c) => c.url)).toEqual(["b", "c"]);
+		expect(applyView(contacts, "NEW").map((c) => c.url)).toEqual(["b", "c", "d"]);
 	});
 
 	it("NGRAM flags provenance without implying unread", () => {
@@ -83,8 +84,10 @@ describe("applyView / matchesView", () => {
 		expect(matchesView(contacts[0], "NGRAM")).toBe(false);
 	});
 
-	it("FLAGGED uses the shared negative-tone policy boundary inclusive", () => {
-		expect(applyView(contacts, "FLAGGED").map((c) => c.url)).toEqual(["c"]);
+	it("FLAGGED is the device-local flag set, not a tone policy", () => {
+		expect(matchesView(contacts[3], "FLAGGED")).toBe(true); // d flagged
+		expect(matchesView(contacts[2], "FLAGGED")).toBe(false); // c unflagged despite tone -7
+		expect(applyView(contacts, "FLAGGED").map((c) => c.url)).toEqual(["d"]);
 	});
 });
 

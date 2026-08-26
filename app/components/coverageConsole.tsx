@@ -6,8 +6,10 @@ import { cn } from "~/lib/utils";
 import { formatSeenUtc } from "~/lib/date";
 import {
 	browserReadStorage,
+	loadFlagUrls,
 	loadReadUrls,
 	markReadUrls,
+	toggleFlagUrl,
 } from "~/lib/triage";
 import {
 	applyView,
@@ -19,7 +21,7 @@ import {
 	type FilterView,
 } from "~/lib/consoleModel";
 import type { FreshView } from "~/services/watchView";
-import { ExternalLinkIcon, NewspaperIcon } from "lucide-react";
+import { ExternalLinkIcon, FlagIcon, NewspaperIcon } from "lucide-react";
 
 /**
  * The coverage console shell — effects, keyboard, and rendering only. Every
@@ -151,11 +153,13 @@ function CoverageRow({
 	index,
 	selected,
 	onSelect,
+	onToggleFlag,
 }: {
 	contact: Contact;
 	index: number;
 	selected: boolean;
 	onSelect: (index: number) => void;
+	onToggleFlag: (url: string) => void;
 }) {
 	const hue = CHANNEL_HUES[contact.channel % CHANNEL_HUES.length];
 	return (
@@ -167,18 +171,19 @@ function CoverageRow({
 			)}
 			style={{ borderColor: "var(--scope-grid)" }}
 		>
-			<a
-				href={contact.url}
-				target="_blank"
-				rel="noopener noreferrer"
-				onClick={(e) => {
-					e.preventDefault();
-					onSelect(index);
-				}}
-				title="Select for preview — middle-click to open in a tab"
-				className="group flex items-start gap-2.5 text-sm leading-snug focus-visible:outline-2 focus-visible:-outline-offset-2"
-				style={{ outlineColor: "var(--scope-phos)" }}
-			>
+			<div className="flex items-start gap-1.5">
+				<a
+					href={contact.url}
+					target="_blank"
+					rel="noopener noreferrer"
+					onClick={(e) => {
+						e.preventDefault();
+						onSelect(index);
+					}}
+					title="Select for preview — middle-click to open in a tab"
+					className="group flex min-w-0 flex-1 items-start gap-2.5 text-sm leading-snug focus-visible:outline-2 focus-visible:-outline-offset-2"
+					style={{ outlineColor: "var(--scope-phos)" }}
+				>
 				<span
 					aria-hidden
 					className="mt-[3px] shrink-0 font-mono text-xs"
@@ -221,7 +226,23 @@ function CoverageRow({
 						{contact.moreInGroup > 0 && <span>+{contact.moreInGroup} more</span>}
 					</span>
 				</span>
-			</a>
+				</a>
+				<button
+					type="button"
+					title={contact.flagged ? "Remove flag" : "Flag this story (f)"}
+					aria-pressed={contact.flagged}
+					onClick={() => onToggleFlag(contact.url)}
+					className="mt-[3px] shrink-0 rounded p-0.5 transition-colors hover:text-[color:var(--scope-hot)] focus-visible:outline-2 focus-visible:-outline-offset-2"
+					style={{ color: contact.flagged ? "var(--scope-hot)" : "var(--scope-dim)", outlineColor: "var(--scope-phos)" }}
+				>
+					<FlagIcon
+						className="size-3.5"
+						aria-hidden
+						style={contact.flagged ? { fill: "currentColor" } : undefined}
+					/>
+					<span className="sr-only">{contact.flagged ? `Unflag ${contact.title}` : `Flag ${contact.title}`}</span>
+				</button>
+			</div>
 		</li>
 	);
 }
@@ -270,11 +291,21 @@ export function CoverageConsole({
 		setReadSet(markReadUrls(browserReadStorage(), urls));
 	}, []);
 
+	// Flags are the device-local watchlist (lib/triage) — what FLAGGED views.
+	const [flagSet, setFlagSet] = useState<Set<string>>(() => new Set());
+	useEffect(() => setFlagSet(loadFlagUrls(browserReadStorage())), []);
+	const toggleFlag = useCallback((url: string) => {
+		setFlagSet(toggleFlagUrl(browserReadStorage(), url));
+	}, []);
+
 	const [gain, setGain] = useState(25);
 	const [view, setView] = useState<FilterView>("ALL");
 	const [selected, setSelected] = useState(0);
 
-	const contacts = useMemo(() => buildContacts(resolved, readSet), [resolved, readSet]);
+	const contacts = useMemo(
+		() => buildContacts(resolved, readSet, flagSet),
+		[resolved, readSet, flagSet],
+	);
 	const shown = useMemo(() => applyView(contacts, view).slice(0, gain), [contacts, view, gain]);
 
 	// The selection always names a row of `shown`.
@@ -292,26 +323,33 @@ export function CoverageConsole({
 		[shown, commitRead],
 	);
 
-	// j/k walk the log; o/Enter open-and-mark-read; 1–4 switch views.
+	const toggleSelectedFlag = useCallback(() => {
+		const target = shown[selected];
+		if (target) toggleFlag(target.url);
+	}, [shown, selected, toggleFlag]);
+
+	// j/k walk the log; o/Enter open-and-mark-read; f flags; 1–4 switch views.
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
 			if (isTypingTarget(e.target)) return;
 			if (e.key === "j") setSelected(clampSelection(selected + 1, shown.length));
 			else if (e.key === "k") setSelected(clampSelection(selected - 1, shown.length));
 			else if (e.key === "o" || e.key === "Enter") openContact(selected);
+			else if (e.key === "f") toggleSelectedFlag();
 			else if (/^[1-4]$/.test(e.key)) setView(FILTERS[Number(e.key) - 1]);
 			else return;
 			e.preventDefault();
 		};
 		window.addEventListener("keydown", handler);
 		return () => window.removeEventListener("keydown", handler);
-	}, [shown.length, selected, openContact]);
+	}, [shown.length, selected, openContact, toggleSelectedFlag]);
 
 	useEffect(() => {
 		document.querySelector(`[data-coverage-row="${selected}"]`)?.scrollIntoView({ block: "nearest" });
 	}, [selected]);
 
 	const unreadCount = useMemo(() => contacts.filter((c) => !c.read).length, [contacts]);
+	const flaggedCount = useMemo(() => contacts.filter((c) => c.flagged).length, [contacts]);
 
 	const selectedContact = shown[selected] ?? null;
 	const activePreview = selectedContact ? previewSrc(selectedContact.url) : null;
@@ -339,6 +377,7 @@ export function CoverageConsole({
 					</span>
 					<span className="flex items-center gap-3 font-mono text-xs tabular-nums">
 						<span style={{ color: unreadCount > 0 ? "var(--scope-hot)" : "var(--scope-dim)" }}>{unreadCount} new</span>
+						<span style={{ color: flaggedCount > 0 ? "var(--scope-hot)" : "var(--scope-dim)" }}>{flaggedCount} flagged</span>
 						<span style={{ color: "var(--scope-dim)" }}>+{sinceLastVisit} since visit</span>
 					</span>
 				</div>
@@ -382,7 +421,9 @@ export function CoverageConsole({
 						<li className="px-4 py-10 text-center font-mono text-xs" style={{ color: "var(--scope-dim)" }}>
 							{contacts.length === 0
 								? "NO COVERAGE IN THIS WINDOW — SPARSE RESULTS USUALLY MEAN THIN INDEX COVERAGE"
-								: "NO COVERAGE MATCHES THIS VIEW"}
+								: view === "FLAGGED"
+									? "NOTHING FLAGGED YET — PRESS F (OR THE FLAG) ON A STORY"
+									: "NO COVERAGE MATCHES THIS VIEW"}
 						</li>
 					) : (
 						shown.map((c, i) => (
@@ -392,6 +433,7 @@ export function CoverageConsole({
 								index={i}
 								selected={i === selected}
 								onSelect={setSelected}
+								onToggleFlag={toggleFlag}
 							/>
 						))
 					)}
@@ -422,7 +464,7 @@ export function CoverageConsole({
 					className="border-t px-3 py-1.5 font-mono text-[11px]"
 					style={{ borderColor: "var(--scope-line)", color: "var(--scope-dim)", background: "var(--scope-panel-2)" }}
 				>
-					j/k move · o open original · click previews · 1–4 views · read state lives on this device
+					j/k move · o open original · f flag · click previews · 1–4 views · read + flags live on this device
 				</div>
 			</div>
 

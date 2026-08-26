@@ -13,9 +13,6 @@ export const CHANNEL_HUES = ["#46e69b", "#59d8e6", "#ab90ff", "#ffb454", "#ff8fa
 export const FILTERS = ["ALL", "NEW", "NGRAM", "FLAGGED"] as const;
 export type FilterView = (typeof FILTERS)[number];
 
-/** FLAGGED view policy: tone at or below this reads as negative coverage. */
-export const FLAGGED_TONE_THRESHOLD = -5;
-
 export type Contact = {
 	url: string;
 	title: string;
@@ -27,6 +24,7 @@ export type Contact = {
 	channelLabel: string;
 	ngram: boolean;
 	read: boolean;
+	flagged: boolean;
 };
 
 type ContactSource = {
@@ -35,8 +33,24 @@ type ContactSource = {
 	ngramUrls: string[];
 };
 
-/** Flatten resolved per-watch views into one recency-sorted contact list. */
-export function buildContacts(sources: readonly ContactSource[], readSet: ReadonlySet<string>): Contact[] {
+function hostOf(url: string): string | undefined {
+	try {
+		return new URL(url).hostname;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Flatten resolved per-watch views into one recency-sorted contact list.
+ * Read/flag state are the device-local sets from lib/triage — ngram and
+ * flag provenance ride on the contact, never on the totals.
+ */
+export function buildContacts(
+	sources: readonly ContactSource[],
+	readSet: ReadonlySet<string>,
+	flagSet: ReadonlySet<string> = new Set(),
+): Contact[] {
 	const out: Contact[] = [];
 	sources.forEach((source, channel) => {
 		const ngramSet = new Set(source.ngramUrls);
@@ -48,13 +62,14 @@ export function buildContacts(sources: readonly ContactSource[], readSet: Readon
 				url: article.url,
 				title: group.title,
 				moreInGroup: group.articles.length - 1,
-				domain: article.domain,
+				domain: article.domain ?? hostOf(article.url),
 				seenTs: seenDate ? seenDate.getTime() : null,
 				tone: article.tone,
 				channel,
 				channelLabel: source.label,
 				ngram: ngramSet.has(article.url),
 				read: readSet.has(article.url),
+				flagged: flagSet.has(article.url),
 			});
 		}
 	});
@@ -65,7 +80,7 @@ export function buildContacts(sources: readonly ContactSource[], readSet: Readon
 export function matchesView(contact: Contact, view: FilterView): boolean {
 	if (view === "NEW") return !contact.read;
 	if (view === "NGRAM") return contact.ngram;
-	if (view === "FLAGGED") return (contact.tone ?? 0) <= FLAGGED_TONE_THRESHOLD;
+	if (view === "FLAGGED") return contact.flagged;
 	return true;
 }
 
