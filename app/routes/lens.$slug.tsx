@@ -29,11 +29,7 @@ import { withGrace } from "~/lib/freshGrace";
 import { writeGate } from "~/lib/access";
 import { getCloudflare } from "~/lib/cloudflare-context";
 import { Button, buttonVariants } from "~/components/ui/button";
-import {
-	CoverageConsole,
-	CoverageConsoleFallback,
-	SensorStrip,
-} from "~/components/coverageConsole";
+import { CoverageConsole, SensorStrip } from "~/components/coverageConsole";
 import { CHANNEL_HUES } from "~/lib/consoleModel";
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
@@ -362,9 +358,7 @@ export default function LensPage() {
 					</Button>
 				</Empty>
 			) : (
-				<React.Suspense fallback={<CoverageConsoleFallback />}>
-					<CoverageConsole watches={watches} sinceLastVisit={pulse.changedCount} />
-				</React.Suspense>
+				<CoverageConsole watches={watches} sinceLastVisit={pulse.changedCount} />
 			)}
 
 			<AlertDialog

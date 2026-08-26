@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
@@ -233,9 +233,28 @@ export function CoverageConsole({
 	watches: ConsoleWatch[];
 	sinceLastVisit: number;
 }) {
-	// Deferred freshness resolves inside this boundary and swaps in silently.
+	// Instant cached paint: the console renders from the immediate view the
+	// loader already shipped. Deferred freshness lands via effect — it never
+	// suspends, so an upstream outage can't hold the log hostage behind a
+	// spinner (withGrace bounds each promise; rejections are already folded
+	// into the degraded value).
+	const [freshById, setFreshById] = useState<Record<string, FreshView>>({});
+	useEffect(() => {
+		let alive = true;
+		for (const w of watches) {
+			w.freshPromise
+				?.then((fresh) => {
+					if (alive) setFreshById((prev) => ({ ...prev, [w.id]: fresh }));
+				})
+				.catch(() => {});
+		}
+		return () => {
+			alive = false;
+		};
+	}, [watches]);
+
 	const resolved = watches.map((w) => {
-		const fresh = w.freshPromise ? React.use(w.freshPromise) : null;
+		const fresh = freshById[w.id];
 		return {
 			label: w.label,
 			displayGroups: fresh?.displayGroups ?? w.displayGroups,
@@ -455,7 +474,8 @@ export function CoverageConsole({
 								title={`Reader preview: ${selectedContact?.title ?? ""}`}
 								sandbox="allow-popups allow-popups-to-escape-sandbox"
 								onLoad={() => setFrameLoading(false)}
-								className="absolute inset-0 size-full border-0 bg-white"
+								className="absolute inset-0 size-full border-0"
+								style={{ background: "var(--scope-bg)" }}
 							/>
 						</>
 					) : (
@@ -468,20 +488,6 @@ export function CoverageConsole({
 					)}
 				</div>
 			</div>
-		</div>
-	);
-}
-
-export function CoverageConsoleFallback() {
-	return (
-		<div
-			className="scope-console flex items-center justify-center gap-2 border p-16 font-mono text-xs"
-			style={{ borderColor: "var(--scope-line)", background: "var(--scope-panel)", borderRadius: "var(--radius-lg)", color: "var(--scope-dim)" }}
-			role="status"
-			aria-label="Fetching latest coverage"
-		>
-			<Spinner className="size-3" />
-			Fetching latest coverage…
 		</div>
 	);
 }

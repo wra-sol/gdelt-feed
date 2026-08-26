@@ -34,6 +34,7 @@ type RewriterElement = {
 	setAttribute(name: string, value: string): RewriterElement;
 	removeAttribute(name: string): RewriterElement;
 	prepend(content: string, options?: { html: boolean }): RewriterElement;
+	append(content: string, options?: { html: boolean }): RewriterElement;
 };
 
 const RESPONSE_HEADERS: Record<string, string> = {
@@ -44,6 +45,58 @@ const RESPONSE_HEADERS: Record<string, string> = {
 	"cache-control": "public, max-age=300",
 	"x-robots-tag": "noindex",
 };
+
+/**
+ * Reader-mode dark theme, injected into every proxied document. Palette
+ * mirrors the console's scope vars; the column measure and serif stack are
+ * the "reader" half. Backgrounds are flattened site-wide so upstream
+ * light-theme chrome can't render dark-on-dark.
+ */
+const READER_CSS = `
+:root { color-scheme: dark; }
+html { background: #070b09 !important; }
+body {
+	background: #070b09 !important;
+	color: #d3e9dc !important;
+	max-width: 46rem;
+	margin: 0 auto;
+	padding: 1.5rem 1.25rem 4rem;
+	font-family: ui-serif, Georgia, "Times New Roman", serif;
+	font-size: 17px;
+	line-height: 1.65;
+}
+div, section, article, main, header, footer, aside, nav, figure,
+figcaption, span, p, li, td, th, blockquote, h1, h2, h3, h4, h5, h6,
+time, small, label, dl, dt, dd {
+	background-color: transparent !important;
+}
+h1, h2, h3, h4 { color: #93ffc9 !important; line-height: 1.3; }
+p, li, blockquote, figcaption, dd, dt, td, th, small, time, span { color: #d3e9dc !important; }
+strong, b { color: #f2fbf6 !important; }
+a, a * { color: #59d8e6 !important; text-decoration-color: rgba(89, 216, 230, .5); }
+img, video { max-width: 100%; height: auto; border-radius: 6px; background: #0c130f; }
+figure { margin: 1.25rem 0; }
+pre, code, kbd, samp {
+	background: #111a15 !important;
+	color: #93ffc9 !important;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: .9em;
+	border-radius: 4px;
+}
+pre { padding: .75rem 1rem; overflow-x: auto; }
+table { border-collapse: collapse; margin: 1rem auto; }
+td, th { border: 1px solid rgba(84, 230, 160, .16) !important; padding: .35rem .6rem; }
+blockquote {
+	border-left: 2px solid rgba(70, 230, 155, .4);
+	margin: 1rem 0;
+	padding: .15rem 0 .15rem 1rem;
+	color: #82a894 !important;
+}
+hr { border: 0; border-top: 1px solid rgba(84, 230, 160, .16); margin: 2rem auto; }
+::selection { background: #46e69b; color: #070b09; }
+`;
+
+const READER_HEAD = `<meta name="color-scheme" content="dark"><style>${READER_CSS}</style>`;
 
 function fallbackDoc(title: string, body: string, url?: string): Response {
 	const openLink = url
@@ -148,7 +201,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			// fires exactly once — never inject from on("html"), which runs
 			// BEFORE on("head") in token order (the double-base bug).
 			element(raw) {
-				(raw as unknown as RewriterElement).prepend(baseTag, { html: true });
+				const head = raw as unknown as RewriterElement;
+				head.prepend(baseTag, { html: true });
+				head.append(READER_HEAD, { html: true });
 			},
 		})
 		.transform(new Response(capped, { status: upstream.status }));
