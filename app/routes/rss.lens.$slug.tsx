@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { getLensWithWatches } from "~/services/lensDb";
-import { getCoverageCached } from "~/services/coverage";
+import { getCoverageCached } from "~/services/coverageRead";
 import { watchRef } from "~/services/watchEngine";
 import { buildRssFeed, RSS_RESPONSE_INIT, type RssFeedItem } from "~/services/rssFeed";
 import { seenToRfc822 } from "~/lib/date";

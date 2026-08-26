@@ -9,7 +9,6 @@ import {
 	useSubmit,
 	type LoaderFunctionArgs,
 } from "react-router";
-import type { Article } from "~/types/gdelt";
 import { swr } from "~/services/coverage";
 import {
 	getLensWithWatches,
@@ -19,10 +18,10 @@ import {
 import { getRecentNgramHits } from "~/services/ngrams";
 import {
 	buildWatchView,
+	buildFreshView,
 	type FreshView,
 } from "~/services/watchView";
 import { watchRef } from "~/services/watchEngine";
-import type { ArticleGroup } from "~/lib/grouping";
 import { computePulse } from "~/lib/pulse";
 import { withGrace } from "~/lib/freshGrace";
 	import { seenCookieValue, seenCookieWrite } from "~/lib/lastSeen";
@@ -65,12 +64,6 @@ import { WatchEditor } from "~/components/watchEditor";
 
 type NgramHit = Awaited<ReturnType<typeof getRecentNgramHits>>[number];
 
-/** New-count for a view against this request's last-seen baseline. */
-function pulseNow(view: { id: string; docArticles: Article[] }, lastSeenIso: string | null) {
-	const fp = computePulse([{ id: view.id, articles: view.docArticles }], lastSeenIso);
-	return fp.perWatch[view.id]?.newCount ?? 0;
-}
-
 export const middleware = [writeGate];
 
 export async function loader({ params, request, context }: LoaderFunctionArgs) {
@@ -99,40 +92,24 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 			const view = buildWatchView(watch, immediate.articles, hits, immediate.stale);
 			let freshPromise: Promise<FreshView> | null = null;
 			if (fresh) {
-				const degraded = (): FreshView => ({
-					displayGroups: view.displayGroups,
-					total: view.total,
-					stale: true,
-					newCount: pulseNow(view, lastSeenIso),
-					ngramUrls: view.ngramUrls,
-				});
 				freshPromise = withGrace(
 					fresh
-						.then((coverage) => {
-							const fv = buildWatchView(
+						.then((coverage) =>
+							buildFreshView(
 								watch,
 								coverage.articles,
 								hitsByWatch.get(watch.id) ?? [],
 								coverage.stale,
-							);
-							const fp = computePulse(
-								[{ id: watch.id, articles: fv.docArticles }],
 								lastSeenIso,
-							);
-							return {
-								displayGroups: fv.displayGroups,
-								total: fv.total,
-								stale: fv.stale,
-								newCount: fp.perWatch[watch.id]?.newCount ?? 0,
-								ngramUrls: fv.ngramUrls,
-							};
-						})
+							),
+						)
 						.catch((error: unknown) => {
 							console.error(`[lens] fresh stream failed for ${watch.id}:`, error);
 							throw error;
 						}),
 					FRESH_GRACE_MS,
-					degraded,
+					// Degrade to the immediate inputs, honestly marked stale.
+					() => buildFreshView(watch, immediate.articles, hits, true, lastSeenIso),
 				);
 			}
 			return { view, freshPromise };

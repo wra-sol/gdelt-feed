@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { getLensWithWatches } from "~/services/lensDb";
-import { getCoverageCached } from "~/services/coverage";
+import { getCoverageCached } from "~/services/coverageRead";
 import { watchRef } from "~/services/watchEngine";
 import { getNgramDailySeries } from "~/services/ngrams";
 import {

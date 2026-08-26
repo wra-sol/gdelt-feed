@@ -1,6 +1,6 @@
 import { gdeltApi } from "~/services/gdeltApi";
 import { getCachedPoints, cachePoints, type CachedPoints } from "./timelineCache";
-import { COVERAGE_WINDOW_MS } from "./coverage";
+import { COVERAGE_WINDOW_MS } from "./coverageRead";
 
 export interface TimelinePoint {
 	date: string;

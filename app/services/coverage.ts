@@ -1,73 +1,20 @@
 import { getCachedArticles, cacheArticles, type CachedArticles } from "~/services/articleCache";
 import { gdeltApi } from "~/services/gdeltApi";
-import type { SortOrder } from "~/services/gdeltApi";
-import type { Article } from "~/types/gdelt";
+import { readCached, type Coverage } from "./coverageRead";
 import { watchRef, type WatchDef, type WatchRef } from "~/services/watchEngine";
 
 /**
- * The Coverage module — the one seam answering "what is the current coverage
- * for this Watch?" (architecture-review C1).
+ * The live half of the Coverage module — the one seam answering "what is the
+ * current coverage for this Watch?" (architecture-review C1).
  *
- * Owns: TTL policy, upstream fetch + host failover, cache write, throttle/
- * outage degradation to stale cache, maxrecords clamping, provenance.
- * Callers (feed, lens pulse, trends, rss, cron) learn only this interface.
+ * Owns: upstream fetch + host failover, cache write, throttle/outage
+ * degradation to stale cache, maxrecords clamping, single-flight.
+ * The TTL/window policy and the cache-only read surface live in
+ * `coverageRead.ts` — surfaces that must never touch GDELT (RSS, trends)
+ * import from there and physically cannot reach anything in this file.
  */
-
-export type CoverageSource = "cache" | "gdelt" | "stale-cache";
-
-export interface Coverage {
-	articles: Article[];
-	/** cache = fresh TTL hit; gdelt = live fetch; stale-cache = degraded. */
-	source: CoverageSource;
-	/**
-	 * When the payload was actually fetched (ISO). Fresh cache hits carry the
-	 * real last_fetched instant, never "now". Null when unknown/degraded.
-	 */
-	fetchedAt: string | null;
-	stale: boolean;
-}
-
-/** One warm cycle — the cron cadence and GDELT's own index granularity. */
-export const COVERAGE_WINDOW_MS = 15 * 60 * 1000;
-/** Sustained-failure line: only ≥2 consecutive missed windows are degraded. */
-const DEGRADE_AFTER_MS = 2 * COVERAGE_WINDOW_MS;
-
-/**
- * The honesty rule (2026-08-25): a payload one window old is NOT degraded —
- * GDELT rolls its index every ~15 min anyway, so it sits within the same
- * data window a live query would read. Missing ONE cycle draws no banner;
- * background revalidation quietly retries. Missing ≥2 cycles means we can
- * no longer claim currency → stale.
- */
-interface CachedRead {
-	coverage: Coverage;
-	refreshDue: boolean;
-}
-
-async function readCached(db: D1Database, watch: WatchRef): Promise<CachedRead> {
-	const cached = await getCachedArticles(db, watch.id);
-	if (!cached) {
-		return {
-			coverage: { articles: [], source: "stale-cache", fetchedAt: null, stale: true },
-			refreshDue: true,
-		};
-	}
-	const ageMs = Date.now() - new Date(cached.lastFetched ?? 0).getTime();
-	return {
-		coverage: {
-			articles: cached.articles,
-			source: ageMs < DEGRADE_AFTER_MS ? "cache" : "stale-cache",
-			fetchedAt: cached.lastFetched ?? null,
-			stale: ageMs >= DEGRADE_AFTER_MS,
-		},
-		refreshDue: !cached.isFresh,
-	};
-}
-
-/** Instant: D1-only read. Returns even-stale payloads (check `stale`). */
-export async function getCoverageCached(db: D1Database, watch: WatchRef): Promise<Coverage> {
-	return (await readCached(db, watch)).coverage;
-}
+export type { Coverage, CoverageSource } from "./coverageRead";
+export { COVERAGE_WINDOW_MS, getCoverageCached } from "./coverageRead";
 
 /**
  * Live fetch + cache write. Never throws — degrades to the best known
@@ -122,8 +69,8 @@ async function doRevalidateCoverage(db: D1Database, watch: WatchRef): Promise<Co
 
 /**
  * Stale-while-revalidate for streaming loaders:
- * instant cached view + a fresh-coverage promise, non-null only when the
- * cache was stale (nothing to stream on a fresh hit).
+ * instant cached view + a fresh-coverage promise, non-null only when a
+ * refresh was due (past one window — nothing to stream on a fresh hit).
  */
 export async function swr(
 	db: D1Database,

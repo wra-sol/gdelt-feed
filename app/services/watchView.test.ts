@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWatchView, type NgramHit } from "./watchView";
+import { buildWatchView, buildFreshView, type NgramHit } from "./watchView";
 import { watchRef } from "./watchEngine";
 import type { WatchDef } from "./watchEngine";
 import type { Article } from "~/types/gdelt";
@@ -77,5 +77,42 @@ describe("buildWatchView — structure", () => {
 		const view = buildWatchView(watch, docs, [], false);
 		expect(view.displayGroups).toHaveLength(12);
 		expect(view.total).toBe(15);
+	});
+});
+
+describe("buildFreshView — single-homes the streamed freshness shape", () => {
+	const def: WatchDef = {
+		id: "w-fv",
+		lensId: "l1",
+		label: "Fresh view watch",
+		terms: ["alpha"],
+		timespan: "7d",
+	};
+
+	it("counts doc articles only, badges ngram urls, and computes newCount", () => {
+		const docs: Article[] = [
+			{ url: "https://a/1", title: "Alpha story", seendate: "20260825T120000Z" },
+			{ url: "https://a/2", title: "Other story", seendate: "20260801T000000Z" },
+		];
+		const hits = [
+			{ watchId: "w-fv", url: "https://n/1", title: "Alpha story", publishedAt: "2026-08-25T13:00:00Z" },
+		];
+		const fv = buildFreshView(def, docs, hits, false, "20260820T000000Z");
+		expect(fv.total).toBe(2);
+		expect(fv.newCount).toBe(1); // only the Aug 25 doc is after baseline
+		expect(fv.ngramUrls).toEqual(["https://n/1"]); // merged by groupKey, never counted
+		expect(fv.stale).toBe(false);
+	});
+
+	it("marks stale and yields zero new-count without a baseline", () => {
+		const fv = buildFreshView(
+			def,
+			[{ url: "https://a/3", title: "T", seendate: "20260825T120000Z" }],
+			[],
+			true,
+			null,
+		);
+		expect(fv.stale).toBe(true);
+		expect(fv.newCount).toBe(0);
 	});
 });

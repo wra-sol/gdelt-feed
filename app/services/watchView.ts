@@ -2,6 +2,7 @@ import type { Article } from "~/types/gdelt";
 import type { WatchDef } from "~/services/watchEngine";
 import { groupArticlesByTitle, groupKey, type ArticleGroup } from "~/lib/grouping";
 import { isoToSeenDate } from "~/lib/date";
+import { computePulse } from "~/lib/pulse";
 
 /**
  * The Watch View module — turns a Watch's raw inputs into the count-honest
@@ -37,6 +38,30 @@ export interface FreshView {
 	stale: boolean;
 	newCount: number;
 	ngramUrls: string[];
+}
+
+/**
+ * The one builder for streamed freshness: Watch inputs → blended view →
+ * per-watch new-count against the visitor's baseline. Single-homes the
+ * FreshView shape so the live path and every degrade path produce
+ * identical objects (architecture-review #6).
+ */
+export function buildFreshView(
+	watch: WatchDef,
+	docArticles: Article[],
+	hits: NgramHit[],
+	stale: boolean,
+	lastSeenIso: string | null | undefined,
+): FreshView {
+	const fv = buildWatchView(watch, docArticles, hits, stale);
+	const fp = computePulse([{ id: fv.id, articles: fv.docArticles }], lastSeenIso);
+	return {
+		displayGroups: fv.displayGroups,
+		total: fv.total,
+		stale: fv.stale,
+		newCount: fp.perWatch[fv.id]?.newCount ?? 0,
+		ngramUrls: fv.ngramUrls,
+	};
 }
 
 const MAX_GROUPS = 12;
