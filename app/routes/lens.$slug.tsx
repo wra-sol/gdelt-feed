@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	Link,
+	isRouteErrorResponse,
 	useLoaderData,
 	useNavigation,
+	useRouteError,
 	useSearchParams,
 	useSubmit,
 	type LoaderFunctionArgs,
@@ -21,7 +23,8 @@ import {
 } from "~/services/watchView";
 import { watchRef } from "~/services/watchEngine";
 import type { ArticleGroup } from "~/lib/grouping";
-	import { computePulse } from "~/lib/pulse";
+import { computePulse } from "~/lib/pulse";
+import { withGrace } from "~/lib/freshGrace";
 	import { seenCookieValue, seenCookieWrite } from "~/lib/lastSeen";
 	import { lensFlag } from "~/data/countries";
 import { writeGate } from "~/lib/access";
@@ -88,6 +91,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 	// INSTANT SHELL: swr() reads D1 only. Live GDELT revalidation for stale
 	// watches becomes a deferred promise — the page paints immediately and
 	// fresher content silently swaps in via Suspense.
+	const FRESH_GRACE_MS = 15_000;
 	const built = await Promise.all(
 		watches.map(async (watch) => {
 			const hits = hitsByWatch.get(watch.id) ?? [];
@@ -95,36 +99,41 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 			const view = buildWatchView(watch, immediate.articles, hits, immediate.stale);
 			let freshPromise: Promise<FreshView> | null = null;
 			if (fresh) {
-				freshPromise = fresh
-					.then((coverage) => {
-						const fv = buildWatchView(
-							watch,
-							coverage.articles,
-							hitsByWatch.get(watch.id) ?? [],
-							coverage.stale,
-						);
-						const fp = computePulse(
-							[{ id: watch.id, articles: fv.docArticles }],
-							lastSeenIso,
-						);
-						return {
-							displayGroups: fv.displayGroups,
-							total: fv.total,
-							stale: fv.stale,
-							newCount: fp.perWatch[watch.id]?.newCount ?? 0,
-							ngramUrls: fv.ngramUrls,
-						};
-					})
-					.catch((error: unknown) => {
-						console.error(`[lens] fresh stream failed for ${watch.id}:`, error);
-						return {
-							displayGroups: view.displayGroups,
-							total: view.total,
-							stale: true,
-							newCount: pulseNow(view, lastSeenIso),
-							ngramUrls: view.ngramUrls,
-						};
-					});
+				const degraded = (): FreshView => ({
+					displayGroups: view.displayGroups,
+					total: view.total,
+					stale: true,
+					newCount: pulseNow(view, lastSeenIso),
+					ngramUrls: view.ngramUrls,
+				});
+				freshPromise = withGrace(
+					fresh
+						.then((coverage) => {
+							const fv = buildWatchView(
+								watch,
+								coverage.articles,
+								hitsByWatch.get(watch.id) ?? [],
+								coverage.stale,
+							);
+							const fp = computePulse(
+								[{ id: watch.id, articles: fv.docArticles }],
+								lastSeenIso,
+							);
+							return {
+								displayGroups: fv.displayGroups,
+								total: fv.total,
+								stale: fv.stale,
+								newCount: fp.perWatch[watch.id]?.newCount ?? 0,
+								ngramUrls: fv.ngramUrls,
+							};
+						})
+						.catch((error: unknown) => {
+							console.error(`[lens] fresh stream failed for ${watch.id}:`, error);
+							throw error;
+						}),
+					FRESH_GRACE_MS,
+					degraded,
+				);
 			}
 			return { view, freshPromise };
 		}),
@@ -415,6 +424,40 @@ export default function LensPage() {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+		</div>
+	);
+}
+
+/**
+ * Branded failure surface — the instrument panel never shows a raw
+ * "Something went wrong". 404s (unknown lens) get their own message;
+ * anything else reads as a sensor outage, which is what it is.
+ */
+export function ErrorBoundary() {
+	const error = useRouteError();
+	const notFound = isRouteErrorResponse(error) && error.status === 404;
+
+	return (
+		<div className="mx-auto flex min-h-[60vh] max-w-2xl flex-col items-center justify-center gap-6 p-6 text-center">
+			<RadarIcon className="size-10 text-muted-foreground" aria-hidden />
+			<div>
+				<h1 className="font-heading text-xl font-semibold">
+					{notFound ? "No such lens" : "Signal lost"}
+				</h1>
+				<p className="mt-2 text-sm text-muted-foreground">
+					{notFound
+						? "There's no lens at this address. It may have been removed, or the link is wrong."
+						: "The coverage feed for this lens hit an outage. The rest of Meridian is still listening."}
+				</p>
+			</div>
+			<div className="flex items-center gap-3">
+				<Link to="." className={buttonVariants({ variant: "outline", size: "touch" })}>
+					Retry
+				</Link>
+				<Link to="/" className={buttonVariants({ size: "touch" })}>
+					Back to home
+				</Link>
+			</div>
 		</div>
 	);
 }
