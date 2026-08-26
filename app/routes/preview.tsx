@@ -47,10 +47,11 @@ const RESPONSE_HEADERS: Record<string, string> = {
 };
 
 /**
- * Reader-mode dark theme, injected into every proxied document. Palette
- * mirrors the console's scope vars; the column measure and serif stack are
- * the "reader" half. Backgrounds are flattened site-wide so upstream
- * light-theme chrome can't render dark-on-dark.
+ * Reader-mode dark theme, injected into every proxied document — modelled on
+ * Safari Reading mode: one measured serif column, restrained headline scale,
+ * near-text links, and site chrome pruned away (structural junk is REMOVED
+ * in the rewriter below; lower-confidence junk is hidden here by class
+ * heuristics). Palette mirrors the console's scope vars.
  */
 const READER_CSS = `
 :root { color-scheme: dark; }
@@ -58,41 +59,119 @@ html { background: #070b09 !important; }
 body {
 	background: #070b09 !important;
 	color: #d3e9dc !important;
-	max-width: 46rem;
+	max-width: 44rem;
 	margin: 0 auto;
-	padding: 1.5rem 1.25rem 4rem;
-	font-family: ui-serif, Georgia, "Times New Roman", serif;
-	font-size: 17px;
-	line-height: 1.65;
+	padding: 2.25rem 1.5rem 5rem;
+	font-family: Georgia, "Times New Roman", serif;
+	font-size: 19px;
+	line-height: 1.6;
 }
-div, section, article, main, header, footer, aside, nav, figure,
-figcaption, span, p, li, td, th, blockquote, h1, h2, h3, h4, h5, h6,
-time, small, label, dl, dt, dd {
-	background-color: transparent !important;
+/* --- prune lower-confidence chrome (structure already removed upstream) --- */
+nav,
+body > header,
+body > footer,
+aside,
+[role="navigation"],
+[role="banner"],
+[role="contentinfo"],
+[role="complementary"],
+[role="search"],
+[role="dialog"],
+[aria-hidden="true"],
+[style*="position:fixed"],
+[style*="position: fixed"],
+[class*="sidebar" i], [id*="sidebar" i],
+[class*="related" i], [class*="recommended" i], [class*="trending" i],
+[class*="most-read" i], [class*="popular" i],
+[class*="newsletter" i], [class*="subscribe" i], [class*="signup" i],
+[class*="paywall" i], [class*="cookie" i], [class*="consent" i],
+[class*="breadcrumb" i], [class*="advert" i], [class*="sponsor" i], [class*="promo" i],
+[class*="comments" i], [id*="comments" i] {
+	display: none !important;
 }
-h1, h2, h3, h4 { color: #93ffc9 !important; line-height: 1.3; }
-p, li, blockquote, figcaption, dd, dt, td, th, small, time, span { color: #d3e9dc !important; }
+/* --- book typography --- */
+h1 {
+	color: #f2fbf6 !important;
+	font-size: 1.85em;
+	font-weight: 700;
+	line-height: 1.18;
+	letter-spacing: -0.01em;
+	margin: 0.2em 0 0.45em;
+}
+h2, h3, h4, h5, h6 {
+	color: #f2fbf6 !important;
+	font-weight: 700;
+	line-height: 1.32;
+	margin: 1.7em 0 0.5em;
+}
+h2 { font-size: 1.32em; }
+h3 { font-size: 1.14em; }
+h4, h5, h6 { font-size: 1em; }
+p { margin: 0 0 1.35em; }
+a {
+	color: #e8f6ee !important;
+	text-decoration: underline;
+	text-decoration-color: rgba(211, 233, 220, .35);
+	text-underline-offset: 3px;
+}
 strong, b { color: #f2fbf6 !important; }
-a, a * { color: #59d8e6 !important; text-decoration-color: rgba(89, 216, 230, .5); }
-img, video { max-width: 100%; height: auto; border-radius: 6px; background: #0c130f; }
-figure { margin: 1.25rem 0; }
+time, [rel="author"], [class*="byline" i] {
+	color: #82a894 !important;
+	font-family: ui-sans-serif, system-ui, sans-serif;
+	font-size: .84em;
+	letter-spacing: .02em;
+}
+img, video {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	margin: 1.75rem auto;
+	border-radius: 4px;
+	background: #0c130f;
+}
+figcaption {
+	color: #82a894 !important;
+	font-size: .8em;
+	line-height: 1.45;
+	text-align: center;
+	max-width: 36rem;
+	margin: .55rem auto 0;
+}
+ul, ol { margin: 0 0 1.35em 1.3em; }
+li { margin: .35em 0; }
+blockquote {
+	border-left: 2px solid rgba(70, 230, 155, .45);
+	font-style: italic;
+	color: #a8c4b3 !important;
+	margin: 1.5em 0;
+	padding: .1em 0 .1em 1.25em;
+}
+blockquote p:last-child { margin-bottom: 0; }
+hr {
+	border: 0;
+	border-top: 1px solid rgba(84, 230, 160, .14);
+	width: 55%;
+	margin: 2.5em auto;
+}
 pre, code, kbd, samp {
 	background: #111a15 !important;
 	color: #93ffc9 !important;
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-	font-size: .9em;
+	font-size: .85em;
 	border-radius: 4px;
 }
-pre { padding: .75rem 1rem; overflow-x: auto; }
-table { border-collapse: collapse; margin: 1rem auto; }
-td, th { border: 1px solid rgba(84, 230, 160, .16) !important; padding: .35rem .6rem; }
-blockquote {
-	border-left: 2px solid rgba(70, 230, 155, .4);
-	margin: 1rem 0;
-	padding: .15rem 0 .15rem 1rem;
-	color: #82a894 !important;
+code, kbd, samp { padding: .1em .35em; }
+pre {
+	padding: .9rem 1.1rem;
+	overflow-x: auto;
+	line-height: 1.5;
+	margin: 0 0 1.35em;
 }
-hr { border: 0; border-top: 1px solid rgba(84, 230, 160, .16); margin: 2rem auto; }
+pre code { background: transparent !important; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 1.5rem 0; font-size: .9em; }
+td, th { border: 1px solid rgba(84, 230, 160, .16) !important; padding: .4rem .65rem; text-align: left; }
+th { color: #93ffc9 !important; }
+figure { margin: 1.75rem 0; }
 ::selection { background: #46e69b; color: #070b09; }
 `;
 
@@ -171,7 +250,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	const baseTag = `<base href="${finalUrl.origin}/" target="_blank">`;
 	const sanitized = new HTMLRewriter()
 		.on(
-			"script, iframe, frame, frameset, object, embed, applet, noscript, form, input, button, select, textarea, meta[http-equiv='refresh' i], link[rel=preload], link[rel=preconnect]",
+			// Strip inert/dangerous elements AND high-confidence site chrome —
+			// Safari-Reader-style pruning: nav, asides, landmark roles never
+			// render at all (lower-confidence junk is hidden via READER_CSS).
+			"script, iframe, frame, frameset, object, embed, applet, noscript, form, input, button, select, textarea, meta[http-equiv='refresh' i], link[rel=preload], link[rel=preconnect], nav, aside, [role=navigation], [role=banner], [role=contentinfo], [role=complementary], [role=search], dialog",
 			{
 				element(el) {
 					el.remove();
