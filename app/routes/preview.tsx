@@ -116,7 +116,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
 	);
 
 	const baseTag = `<base href="${finalUrl.origin}/" target="_blank">`;
-	let sawHead = false;
 	const sanitized = new HTMLRewriter()
 		.on(
 			"script, iframe, frame, frameset, object, embed, applet, noscript, form, input, button, select, textarea, meta[http-equiv='refresh' i], link[rel=preload], link[rel=preconnect]",
@@ -145,14 +144,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 			},
 		})
 		.on("head", {
+			// HTML5 parsing synthesises a head for headless documents, so this
+			// fires exactly once — never inject from on("html"), which runs
+			// BEFORE on("head") in token order (the double-base bug).
 			element(raw) {
-				sawHead = true;
 				(raw as unknown as RewriterElement).prepend(baseTag, { html: true });
-			},
-		})
-		.on("html", {
-			element(raw) {
-				if (!sawHead) (raw as unknown as RewriterElement).prepend(`<head>${baseTag}</head>`, { html: true });
 			},
 		})
 		.transform(new Response(capped, { status: upstream.status }));
