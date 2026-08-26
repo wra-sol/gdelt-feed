@@ -115,16 +115,25 @@ describe("swr()", () => {
 		expect(table.has(ref.id)).toBe(true);
 	});
 
-	it("crosses the TTL boundary at 15 minutes", async () => {
+	it("window semantics: one missed cycle stays nominal, two degrade — revalidation due at one", async () => {
 		const freshTable: CacheTable = new Map();
 		seed(freshTable, "w-fresh", minutesAgo(14), ["https://a.example/1"]);
 		const freshResult = await swr(fakeDb(freshTable), { ...ref, id: "w-fresh" });
 		expect(freshResult.immediate.stale).toBe(false);
 		expect(freshResult.fresh).toBeNull();
 
-		const oldTable: CacheTable = new Map();
-		seed(oldTable, "w-old", minutesAgo(16), ["https://a.example/1"]);
+		// 16 min old = one window missed: still within GDELT's own index
+		// granularity → NO degradation banner, but a background refresh runs.
+		const agingTable: CacheTable = new Map();
+		seed(agingTable, "w-aging", minutesAgo(16), ["https://a.example/1"]);
 		searchArticles.mockResolvedValue({ articles: [] });
+		const agingResult = await swr(fakeDb(agingTable), { ...ref, id: "w-aging" });
+		expect(agingResult.immediate.stale).toBe(false);
+		expect(agingResult.fresh).not.toBeNull();
+
+		// 31 min old = two consecutive windows missed → honestly degraded.
+		const oldTable: CacheTable = new Map();
+		seed(oldTable, "w-old", minutesAgo(31), ["https://a.example/1"]);
 		const oldResult = await swr(fakeDb(oldTable), { ...ref, id: "w-old" });
 		expect(oldResult.immediate.stale).toBe(true);
 		expect(oldResult.fresh).not.toBeNull();
