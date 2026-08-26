@@ -16,32 +16,6 @@ export type FilterView = (typeof FILTERS)[number];
 /** FLAGGED view policy: tone at or below this reads as negative coverage. */
 export const FLAGGED_TONE_THRESHOLD = -5;
 
-/**
- * Display-only phosphor decay. "New" semantics are never derived from these —
- * newness is the device-local read flag (lib/triage).
- */
-export const HOT_HOURS = 6;
-export const WARM_HOURS = 24;
-
-export type Tier = "hot" | "warm" | "old";
-
-export function tierFor(seenTs: number | null, now: number): Tier {
-	if (seenTs === null) return "old";
-	const ageH = (now - seenTs) / 3600_000;
-	return ageH < HOT_HOURS ? "hot" : ageH < WARM_HOURS ? "warm" : "old";
-}
-
-/** 1 = just seen, 0 = window expired. Clamped; null timestamps score 0. */
-export function freshnessFraction(
-	seenTs: number | null,
-	now: number,
-	windowHours: number,
-): number {
-	if (seenTs === null) return 0;
-	const fraction = 1 - Math.max(0, now - seenTs) / (windowHours * 3600_000);
-	return Math.max(0, Math.min(1, fraction));
-}
-
 export type Contact = {
 	url: string;
 	title: string;

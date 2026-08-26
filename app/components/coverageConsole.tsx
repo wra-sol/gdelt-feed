@@ -13,19 +13,20 @@ import {
 	applyView,
 	buildContacts,
 	clampSelection,
-	tierFor,
 	CHANNEL_HUES,
 	FILTERS,
 	type Contact,
 	type FilterView,
 } from "~/lib/consoleModel";
-import { Scope, type ScopeBlip } from "~/components/scope";
 import type { FreshView } from "~/services/watchView";
+import { ExternalLinkIcon, NewspaperIcon } from "lucide-react";
 
 /**
  * The coverage console shell — effects, keyboard, and rendering only. Every
  * decidable rule lives in lib/consoleModel; freshness ("new") is the
- * device-local read flag from lib/triage.
+ * device-local read flag from lib/triage. Stories sit left; the right pane
+ * previews the highlighted story through the same-origin /preview reader
+ * proxy (routes/preview.tsx).
  */
 
 export type ConsoleWatch = {
@@ -141,16 +142,20 @@ function isTypingTarget(t: EventTarget | null): boolean {
 	);
 }
 
+function previewSrc(url: string): string {
+	return `/preview?url=${encodeURIComponent(url)}`;
+}
+
 function CoverageRow({
 	contact,
 	index,
 	selected,
-	onOpened,
+	onSelect,
 }: {
 	contact: Contact;
 	index: number;
 	selected: boolean;
-	onOpened: (url: string) => void;
+	onSelect: (index: number) => void;
 }) {
 	const hue = CHANNEL_HUES[contact.channel % CHANNEL_HUES.length];
 	return (
@@ -166,7 +171,11 @@ function CoverageRow({
 				href={contact.url}
 				target="_blank"
 				rel="noopener noreferrer"
-				onClick={() => onOpened(contact.url)}
+				onClick={(e) => {
+					e.preventDefault();
+					onSelect(index);
+				}}
+				title="Select for preview — middle-click to open in a tab"
 				className="group flex items-start gap-2.5 text-sm leading-snug focus-visible:outline-2 focus-visible:-outline-offset-2"
 				style={{ outlineColor: "var(--scope-phos)" }}
 			>
@@ -220,11 +229,9 @@ function CoverageRow({
 export function CoverageConsole({
 	watches,
 	sinceLastVisit,
-	now,
 }: {
 	watches: ConsoleWatch[];
 	sinceLastVisit: number;
-	now: number;
 }) {
 	// Deferred freshness resolves inside this boundary and swaps in silently.
 	const resolved = watches.map((w) => {
@@ -286,62 +293,36 @@ export function CoverageConsole({
 	}, [selected]);
 
 	const unreadCount = useMemo(() => contacts.filter((c) => !c.read).length, [contacts]);
-	const stale = resolved.some((w) => w.stale);
-	const blips: ScopeBlip[] = shown.map((c) => ({
-		url: c.url,
-		seenTs: c.seenTs,
-		tier: tierFor(c.seenTs, now),
-		read: c.read,
-	}));
+
+	const selectedContact = shown[selected] ?? null;
+	const activePreview = selectedContact ? previewSrc(selectedContact.url) : null;
+	const [frameLoading, setFrameLoading] = useState(false);
+	useEffect(() => {
+		if (activePreview) setFrameLoading(true);
+	}, [activePreview]);
 
 	return (
-		<div className="scope-console grid gap-3 lg:h-[calc(100vh-16rem)] lg:grid-cols-[400px_1fr]" style={{ borderRadius: "var(--radius-xl)" }}>
-			<div
-				className="relative flex flex-col items-center gap-3 border p-4"
-				style={{ borderColor: "var(--scope-line)", background: "var(--scope-panel)", borderRadius: "var(--radius-lg)" }}
-			>
-				<div className="flex w-full items-center justify-between">
-					<span className="font-mono text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--scope-dim)" }}>
-						primary scan
-					</span>
-					<span className="flex items-center gap-3 font-mono text-xs tabular-nums">
-						<span style={{ color: unreadCount > 0 ? "var(--scope-hot)" : "var(--scope-dim)" }}>
-							{unreadCount} new
-						</span>
-						<span style={{ color: "var(--scope-dim)" }}>+{sinceLastVisit} since visit</span>
-					</span>
-				</div>
-				<SensorStrip stale={stale} />
-				<Scope
-					blips={blips.map((b, i) => ({ ...b, selected: i === selected }))}
-					size={320}
-					now={now}
-					label={`Coverage scope, ${blips.length} articles, ${unreadCount} new`}
-				/>
-				<div className="mt-auto flex w-full items-end justify-between pt-3">
-					<div className="flex items-center gap-2">
-						<GainDial value={gain} min={10} max={60} onChange={setGain} />
-						<span className="font-mono text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--scope-dim)" }}>
-							gain
-							<br />
-							<span className="text-sm normal-case tracking-normal" style={{ color: "var(--scope-fg)" }}>{gain}</span>
-						</span>
-					</div>
-					<Button
-						variant="outline"
-						size="sm"
-						isDisabled={unreadCount === 0}
-						onPress={() => commitRead(contacts.map((c) => c.url))}
-						className="border-[color:var(--scope-line)] bg-transparent font-mono text-xs text-[color:var(--scope-fg)] hover:bg-[rgba(70,230,155,.08)] hover:text-[color:var(--scope-hot)]"
-					>
-						Clear {unreadCount > 0 ? unreadCount : ""} new
-					</Button>
-				</div>
-			</div>
+		<div
+			className="scope-console grid gap-3 lg:h-[calc(100vh-16rem)] lg:grid-cols-[minmax(0,28rem)_1fr]"
+			style={{ borderRadius: "var(--radius-xl)" }}
+		>
+			{/* Stories — the log itself, now the primary surface */}
 			<div
 				className="flex min-h-0 flex-col overflow-hidden border"
 				style={{ borderColor: "var(--scope-line)", background: "var(--scope-panel)", borderRadius: "var(--radius-lg)" }}
 			>
+				<div
+					className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2"
+					style={{ borderColor: "var(--scope-line)", background: "var(--scope-panel-2)" }}
+				>
+					<span className="font-mono text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--scope-dim)" }}>
+						coverage log
+					</span>
+					<span className="flex items-center gap-3 font-mono text-xs tabular-nums">
+						<span style={{ color: unreadCount > 0 ? "var(--scope-hot)" : "var(--scope-dim)" }}>{unreadCount} new</span>
+						<span style={{ color: "var(--scope-dim)" }}>+{sinceLastVisit} since visit</span>
+					</span>
+				</div>
 				<div
 					className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2"
 					style={{ borderColor: "var(--scope-line)", background: "var(--scope-panel-2)" }}
@@ -391,16 +372,100 @@ export function CoverageConsole({
 								contact={c}
 								index={i}
 								selected={i === selected}
-								onOpened={(url) => commitRead([url])}
+								onSelect={setSelected}
 							/>
 						))
 					)}
 				</ul>
 				<div
+					className="flex items-end justify-between border-t px-3 py-2"
+					style={{ borderColor: "var(--scope-line)", background: "var(--scope-panel-2)" }}
+				>
+					<div className="flex items-center gap-2">
+						<GainDial value={gain} min={10} max={60} onChange={setGain} />
+						<span className="font-mono text-[10px] uppercase tracking-[0.14em]" style={{ color: "var(--scope-dim)" }}>
+							gain
+							<br />
+							<span className="text-sm normal-case tracking-normal" style={{ color: "var(--scope-fg)" }}>{gain}</span>
+						</span>
+					</div>
+					<Button
+						variant="outline"
+						size="sm"
+						isDisabled={unreadCount === 0}
+						onPress={() => commitRead(contacts.map((c) => c.url))}
+						className="border-[color:var(--scope-line)] bg-transparent font-mono text-xs text-[color:var(--scope-fg)] hover:bg-[rgba(70,230,155,.08)] hover:text-[color:var(--scope-hot)]"
+					>
+						Clear {unreadCount > 0 ? unreadCount : ""} new
+					</Button>
+				</div>
+				<div
 					className="border-t px-3 py-1.5 font-mono text-[11px]"
 					style={{ borderColor: "var(--scope-line)", color: "var(--scope-dim)", background: "var(--scope-panel-2)" }}
 				>
-					j/k move · o open · 1–4 views · gain sets depth · read state lives on this device
+					j/k move · o open original · click previews · 1–4 views · read state lives on this device
+				</div>
+			</div>
+
+			{/* Reader pane — the highlighted story via the same-origin proxy */}
+			<div
+				className="relative flex min-h-0 flex-col overflow-hidden border"
+				style={{ borderColor: "var(--scope-line)", background: "var(--scope-panel)", borderRadius: "var(--radius-lg)" }}
+			>
+				<div
+					className="flex items-center justify-between gap-3 border-b px-3 py-2"
+					style={{ borderColor: "var(--scope-line)", background: "var(--scope-panel-2)" }}
+				>
+					<div className="min-w-0">
+						<p className="truncate text-sm font-medium" style={{ color: "var(--scope-fg)" }}>
+							{selectedContact?.title ?? "No story selected"}
+						</p>
+						<p className="mt-0.5 truncate font-mono text-[11px]" style={{ color: "var(--scope-dim)" }}>
+							{selectedContact ? `${selectedContact.domain ?? "—"}${selectedContact.read ? " · read" : ""}` : "the preview follows your selection"}
+						</p>
+					</div>
+					<Button
+						variant="outline"
+						size="sm"
+						isDisabled={!selectedContact}
+						onPress={() => openContact(selected)}
+						className="shrink-0 gap-1.5 border-[color:var(--scope-line)] bg-transparent font-mono text-xs text-[color:var(--scope-fg)] hover:bg-[rgba(70,230,155,.08)] hover:text-[color:var(--scope-hot)]"
+					>
+						<ExternalLinkIcon className="size-3.5" aria-hidden />
+						Open original
+					</Button>
+				</div>
+				<div className="relative h-[70vh] lg:h-auto lg:min-h-0 lg:flex-1">
+					{activePreview ? (
+						<>
+							{frameLoading && (
+								<div
+									className="absolute inset-0 z-10 flex items-center justify-center gap-2 font-mono text-xs"
+									style={{ background: "var(--scope-panel)", color: "var(--scope-dim)" }}
+									role="status"
+									aria-label="Fetching article"
+								>
+									<Spinner className="size-3" />
+									Fetching article…
+								</div>
+							)}
+							<iframe
+								key={activePreview}
+								src={activePreview}
+								title={`Reader preview: ${selectedContact?.title ?? ""}`}
+								sandbox="allow-popups allow-popups-to-escape-sandbox"
+								onLoad={() => setFrameLoading(false)}
+								className="absolute inset-0 size-full border-0 bg-white"
+							/>
+						</>
+					) : (
+						<div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center">
+							<NewspaperIcon className="size-8" style={{ color: "var(--scope-dim)" }} aria-hidden />
+							<p className="max-w-xs font-mono text-xs leading-relaxed" style={{ color: "var(--scope-dim)" }}>
+								SELECT A STORY AND IT RENDERS HERE — SANITIZED, SCRIPT-FREE, READ IN PLACE OR CLICK OUT
+							</p>
+						</div>
+					)}
 				</div>
 			</div>
 		</div>

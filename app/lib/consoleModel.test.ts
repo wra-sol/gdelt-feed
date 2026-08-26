@@ -3,14 +3,9 @@ import {
 	applyView,
 	buildContacts,
 	clampSelection,
-	freshnessFraction,
 	matchesView,
-	tierFor,
 	FLAGGED_TONE_THRESHOLD,
 } from "~/lib/consoleModel";
-
-const HOUR = 3600_000;
-const NOW = 1_800_000_000_000;
 
 function source(label: string, groups: { title: string; url: string; seendate?: string; tone?: number }[], ngramUrls: string[] = []) {
 	return {
@@ -90,22 +85,6 @@ describe("applyView / matchesView", () => {
 
 	it("FLAGGED uses the shared negative-tone policy boundary inclusive", () => {
 		expect(applyView(contacts, "FLAGGED").map((c) => c.url)).toEqual(["c"]);
-	});
-});
-
-describe("decay vocabulary", () => {
-	it("tier boundaries sit exactly at HOT and WARM hours", () => {
-		const seen = NOW;
-		expect(tierFor(seen - (6 * HOUR - 1), NOW)).toBe("hot");
-		expect(tierFor(seen - 6 * HOUR, NOW)).toBe("warm");
-		expect(tierFor(seen - 24 * HOUR, NOW)).toBe("old");
-	});
-
-	it("null timestamps decay to old and fraction clamps to bounds", () => {
-		expect(tierFor(null, NOW)).toBe("old");
-		expect(freshnessFraction(null, NOW, 72)).toBe(0);
-		expect(freshnessFraction(NOW, NOW, 72)).toBe(1);
-		expect(freshnessFraction(NOW - 999 * HOUR, NOW, 72)).toBe(0);
 	});
 });
 

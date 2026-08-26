@@ -123,8 +123,6 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
 	);
 
 	return {
-		/** Request instant — lets client tiers/ages hydrate without mismatch. */
-		now: Date.now(),
 		lens: {
 			id: lens.id,
 			slug: lens.slug,
@@ -365,7 +363,7 @@ export default function LensPage() {
 				</Empty>
 			) : (
 				<React.Suspense fallback={<CoverageConsoleFallback />}>
-					<CoverageConsole watches={watches} sinceLastVisit={pulse.changedCount} now={data.now} />
+					<CoverageConsole watches={watches} sinceLastVisit={pulse.changedCount} />
 				</React.Suspense>
 			)}
 

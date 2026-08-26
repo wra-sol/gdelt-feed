@@ -86,7 +86,7 @@ export default function Home() {
 				what's rising, how tone is moving, what changed since you last looked.
 			</p>
 			<p className="mt-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-				A radar, not a reader: we surface the signal, you click out to read. Built on the free,
+				A radar with a reader built in: scan the signal, preview stories in place, click out to read the whole site. Built on the free,
 				keyless{" "}
 				<a
 					href="https://www.gdeltproject.org/"

@@ -30,4 +30,4 @@ Deep background: [docs/adr-001-lens-model.md](docs/adr-001-lens-model.md), [HAND
 
 ## Non-goals (settled decisions)
 
-No email infrastructure · no auth code (public reads / gated writes) · no article text ever (GDELT provides none — link out) · place-of-subject, not place-of-publisher · ship-and-show over usage metrics.
+No email infrastructure · no auth code (public reads / gated writes) · article previews only through the same-origin `/preview` reader proxy — fetch-and-sanitize, script-free CSP, SSRF-guarded (`lib/preview.ts`); supersedes the old "link out, never fetch text" rule · place-of-subject, not place-of-publisher · ship-and-show over usage metrics.

@@ -25,6 +25,10 @@ export default [
         file: "./routes/lens.$slug.trends.tsx",
       },
       {
+        path: "preview",
+        file: "./routes/preview.tsx",
+      },
+      {
         path: "rss/lens/:slug",
         file: "./routes/rss.lens.$slug.tsx",
       },
