@@ -2,6 +2,7 @@ import { parseSort, isValidTimespan } from "~/services/gdeltApi";
 import { compileWatchQuery, type WatchDef } from "~/services/watchEngine";
 import { deleteCachedStmt } from "~/services/articleCache";
 import { deleteNgramHitsStmt } from "~/services/ngrams";
+import { deleteTimelineStmt } from "~/services/timelineCache";
 
 export interface Lens {
 	id: string;
@@ -193,6 +194,7 @@ export async function deleteWatch(db: D1Database, id: string): Promise<void> {
 		db.prepare("DELETE FROM watches WHERE id = ?1").bind(id),
 		deleteCachedStmt(db, id),
 		deleteNgramHitsStmt(db, id),
+		deleteTimelineStmt(db, id),
 	]);
 }
 
@@ -203,6 +205,10 @@ export async function deleteLens(db: D1Database, id: string): Promise<void> {
 		.all<{ id: string }>();
 	await db.batch([
 		db.prepare("DELETE FROM lenses WHERE id = ?1").bind(id),
-		...results.flatMap((w) => [deleteCachedStmt(db, w.id), deleteNgramHitsStmt(db, w.id)]),
+		...results.flatMap((w) => [
+			deleteCachedStmt(db, w.id),
+			deleteNgramHitsStmt(db, w.id),
+			deleteTimelineStmt(db, w.id),
+		]),
 	]);
 }

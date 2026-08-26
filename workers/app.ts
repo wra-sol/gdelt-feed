@@ -1,5 +1,6 @@
 import { createRequestHandler, RouterContextProvider } from "react-router";
 import { cloudflareContext } from "~/lib/cloudflare-context";
+import { watchRef } from "~/services/watchEngine";
 
 const requestHandler = createRequestHandler(
 	() => import("virtual:react-router/server-build"),
@@ -29,6 +30,21 @@ export default {
 			console.log("[coverage] warmed", summary);
 		} catch (error) {
 			console.error("[coverage] warm failed:", error);
+		}
+
+		// Timelines share the window policy; same sequential gate-paced loop.
+		try {
+			const { warmAllTimelines } = await import("~/services/timeline");
+			const summary = await warmAllTimelines(
+				db,
+				watches.map((w) => {
+					const ref = watchRef(w);
+					return { id: ref.id, query: ref.query, timespan: w.timespan };
+				}),
+			);
+			console.log("[timeline] warmed", summary);
+		} catch (error) {
+			console.error("[timeline] warm failed:", error);
 		}
 
 		if ((env.NGRAMS_ENABLED ?? "").toLowerCase() !== "true") return;

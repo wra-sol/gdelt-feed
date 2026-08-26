@@ -5,10 +5,11 @@ import { getCoverageCached } from "~/services/coverage";
 import { watchRef } from "~/services/watchEngine";
 import { getNgramDailySeries } from "~/services/ngrams";
 import {
-	fetchVolumeTimeline,
 	averageTone,
+	swrTimeline,
 	type TimelinePoint,
 } from "~/services/timeline";
+import { withGrace } from "~/lib/freshGrace";
 import { TrendChart } from "~/components/TrendChart";
 import { getCloudflare } from "~/lib/cloudflare-context";
 import { Card } from "~/components/ui/card";
@@ -19,8 +20,11 @@ import { cn } from "~/lib/utils";
 interface WatchTrend {
 	id: string;
 	label: string;
-	/** Deferred: DOC volume timeline (slow upstream call). */
-	pointsPromise: Promise<{ points: TimelinePoint[]; stale: boolean }>;
+	/** Instant: cached DOC timeline (may be empty on a cold watch). */
+	points: TimelinePoint[];
+	stale: boolean;
+	/** Deferred: fresher timeline when one was due; null when cache is warm. */
+	pointsPromise: Promise<{ points: TimelinePoint[]; stale: boolean }> | null;
 	ngramSeries: { date: string; value: number }[];
 	avgTone: number | null;
 }
@@ -31,29 +35,44 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
 	if (!found) throw new Response("Lens not found", { status: 404 });
 	const { lens, watches } = found;
 
-	const ngramSeries = await getNgramDailySeries(		db,
+	const ngramSeries = await getNgramDailySeries(
+		db,
 		watches.map((w) => w.id),
 		30,
 	);
 
-	// Instant: ngram daily series + avg tone come from D1. The slow DOC
-	// timeline call is deferred — the page streams its shell immediately.
+	// INSTANT SHELL: swrTimeline reads D1 only. The slow DOC timeline call
+	// runs as a deferred promise bounded by the same fresh-grace window as
+	// the lens page — charts paint from cache immediately and silently swap
+	// when fresher data lands (or degrade honestly when it doesn't).
+	const FRESH_GRACE_MS = 15_000;
 	const trends: WatchTrend[] = await Promise.all(
 		watches.map(async (watch) => {
 			const ref = watchRef(watch);
-			const query = ref.query;
+			const { immediate, fresh } = await swrTimeline(db, {
+				id: ref.id,
+				query: ref.query,
+				timespan: watch.timespan,
+			});
 			const cached = await getCoverageCached(db, ref);
 
-			const pointsPromise = fetchVolumeTimeline(query, watch.timespan ?? "3m")
-				.then((points) => ({ points, stale: points.length === 0 }))
-				.catch((error) => {
-					console.error(`Timeline for ${watch.label} failed:`, error);
-					return { points: [] as TimelinePoint[], stale: true };
+			let pointsPromise: Promise<{ points: TimelinePoint[]; stale: boolean }> | null = null;
+			if (fresh) {
+				pointsPromise = withGrace(
+					fresh.then((t) => ({ points: t.points, stale: t.stale })),
+					FRESH_GRACE_MS,
+					() => ({ points: immediate.points, stale: true }),
+				).catch((error: unknown) => {
+					console.error(`[trends] fresh timeline failed for ${watch.label}:`, error);
+					return { points: immediate.points, stale: true };
 				});
+			}
 
 			return {
 				id: watch.id,
 				label: watch.label,
+				points: immediate.points,
+				stale: immediate.stale,
 				pointsPromise,
 				ngramSeries: ngramSeries.get(watch.id) ?? [],
 				avgTone: averageTone(cached?.articles ?? []),
@@ -68,9 +87,11 @@ function ngramHistoryStart(series: { date: string }[]): string {
 	return series[0]?.date ?? "—";
 }
 
-/** Deferred DOC timeline chart. */
-function DocTimeline({ promise }: { promise: WatchTrend["pointsPromise"] }) {
-	const { points, stale } = React.use(promise);
+/** DOC timeline chart: instant cached points, optional deferred fresh swap. */
+function DocTimeline({ trend }: { trend: WatchTrend }) {
+	const fresh = trend.pointsPromise ? React.use(trend.pointsPromise) : null;
+	const points = fresh?.points ?? trend.points;
+	const stale = fresh?.stale ?? trend.stale;
 	return (
 		<>
 			<TrendChart points={points} stale={stale} width={880} height={80} />
@@ -133,7 +154,7 @@ export default function LensTrends() {
 								GDELT volume · rolling 3-month window
 							</p>
 							<React.Suspense fallback={<TimelineSkeleton />}>
-								<DocTimeline promise={t.pointsPromise} />
+								<DocTimeline trend={t} />
 							</React.Suspense>
 
 							<p className="mt-4 mb-1 font-mono text-xs uppercase tracking-wide text-muted-foreground">
